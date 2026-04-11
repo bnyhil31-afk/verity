@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Type checking
+.mypy_cache/
+l# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Verity runtime
+verity.db
+verity_audit.db
+*.db-wal
+*.db-shm
+
+# Secrets — never commit the signing key
+keys/private/
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
