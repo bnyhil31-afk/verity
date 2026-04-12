@@ -190,6 +190,8 @@ class AuditEventType(str):
     PRINCIPLES_VERIFIED   = "principles_verified" # Boot-time check passed
     CANARY_PASSED         = "canary_passed"
     CANARY_FAILED         = "canary_failed"        # Engine halts on this
+    SESSION_OPENED        = "session_opened"
+    SESSION_CLOSED        = "session_closed"
 
 
 # ── The movement: core scientific types ──────────────────────────────────────
