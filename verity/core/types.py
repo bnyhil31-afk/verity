@@ -32,10 +32,9 @@ Everything else builds on what is defined here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
-
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
 #
@@ -101,9 +100,9 @@ class DataClassification(StrEnum):
     @classmethod
     def escalate(
         cls,
-        a: "DataClassification",
-        b: "DataClassification",
-    ) -> "DataClassification":
+        a: DataClassification,
+        b: DataClassification,
+    ) -> DataClassification:
         """
         Return the higher of two classifications.
         Used when an edge inherits classification from its endpoints.
@@ -273,7 +272,7 @@ class DecayParameters:
         if self.spacing_cap < 1.0:
             raise ValueError(f"spacing_cap must be >= 1.0, got {self.spacing_cap}")
         if not 0.0 < self.prune_threshold < 1.0:
-            raise ValueError(f"prune_threshold must be in (0.0, 1.0)")
+            raise ValueError("prune_threshold must be in (0.0, 1.0)")
 
 
 # ── Module manifest — the complication interface ──────────────────────────────
@@ -350,7 +349,7 @@ class ConsentRecord:
     @property
     def is_active(self) -> bool:
         """True if granted, not revoked, and not expired."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if self.revoked_at is not None:
             return False
         if self.expires_at is not None and now > self.expires_at:
@@ -523,7 +522,7 @@ class ProposedAction:
     proposed_by: str
 
     proposed_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     domain_properties: dict[str, Any] = field(default_factory=dict)
 

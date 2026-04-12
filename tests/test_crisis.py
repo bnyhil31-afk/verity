@@ -25,7 +25,6 @@ from verity.core.crisis import (
 )
 from verity.core.exceptions import CrisisBarrierError
 
-
 # ── is_crisis_input ───────────────────────────────────────────────────────────
 
 class TestIsCrisisInput:

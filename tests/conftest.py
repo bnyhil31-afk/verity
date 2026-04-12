@@ -9,10 +9,10 @@ Provides shared fixtures available to all test modules.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 import pytest_asyncio
-from datetime import datetime, timezone
-
 
 # ── pytest-asyncio configuration ──────────────────────────────────────────────
 # asyncio_mode = "auto" is set in pyproject.toml.
@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 @pytest.fixture
 def now() -> datetime:
     """Current UTC datetime. Use in tests that need a consistent timestamp."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @pytest_asyncio.fixture
@@ -53,9 +53,9 @@ async def started_engine():
     from verity.core.graph_store.rdflib_store import RDFLibStore
     from verity.core.principles import LoadedPrinciples
     from verity.core.types import (
+        DEFAULT_DECAY_PARAMETERS,
         AuditEvent,
         AuditEventType,
-        DEFAULT_DECAY_PARAMETERS,
     )
 
     store = RDFLibStore(path=None, decay_parameters=DEFAULT_DECAY_PARAMETERS)
@@ -83,7 +83,7 @@ async def started_engine():
     await store.append_audit(AuditEvent(
         sequence=0,
         event_type=AuditEventType.PRINCIPLES_VERIFIED,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         actor="test_fixture",
         session_id=None,
         consent_ref=None,
@@ -106,7 +106,7 @@ def sample_consent():
         consent_ref="consent:test_fixture",
         subject_id="patient:test_subject",
         granted_by="test_clinician",
-        granted_at=datetime.now(timezone.utc),
+        granted_at=datetime.now(UTC),
         purpose="test_purpose",
         classifications=(
             DataClassification.PUBLIC,

@@ -19,13 +19,14 @@ This is not optional and is not configurable. It is the immune system.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from verity.core.exceptions import CanaryError, PrinciplesError, SignatureError  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,6 @@ logger = logging.getLogger(__name__)
 _PACKAGE_ROOT = Path(__file__).parent.parent.parent
 PRINCIPLES_PATH = _PACKAGE_ROOT / "principles.yaml"
 SIGNATURE_PATH  = _PACKAGE_ROOT / "principles.sig"
-
-
-# ── Exceptions ────────────────────────────────────────────────────────────────
-
-from verity.core.exceptions import CanaryError, PrinciplesError, SignatureError  # noqa: F401
-
 
 # ── Principles loading ────────────────────────────────────────────────────────
 
@@ -136,16 +131,12 @@ def _verify_signature(content_hash: str, data: dict[str, Any]) -> None:
 
     # Signed — verify Ed25519 signature
     try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-            Ed25519PublicKey,
-        )
+        import base64
+
+        from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.serialization import (
-            Encoding,
-            PublicFormat,
             load_pem_public_key,
         )
-        from cryptography.exceptions import InvalidSignature
-        import base64
 
         # Load public key from signed_by field (PEM or did:key format)
         if signed_by.startswith("-----BEGIN"):
@@ -298,11 +289,11 @@ def _verify_consent_gate_structure() -> None:
     requires a consent_ref field — the structural guarantee that consent
     cannot be bypassed by omission.
     """
-    from verity.core.exceptions import ConsentRequiredError  # noqa: F401
+    import inspect
 
     # Verify ContextRequest has consent_ref as a required field
     from verity.core import ContextRequest
-    import inspect
+    from verity.core.exceptions import ConsentRequiredError  # noqa: F401
     sig = inspect.signature(ContextRequest.__init__)
     params = list(sig.parameters.keys())
     if "consent_ref" not in params:

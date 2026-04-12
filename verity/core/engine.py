@@ -36,16 +36,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 from verity.core.crisis import check_and_raise, get_crisis_resources
 from verity.core.exceptions import (
-    CanaryError,
-    ConsentRequiredError,
     ConsentExpiredError,
+    ConsentRequiredError,
     ConsentRevokedError,
     EngineNotStartedError,
     PurposeMismatchError,
@@ -55,6 +54,7 @@ from verity.core.graph_store import GraphStore
 from verity.core.graph_store.registry import get_graph_store
 from verity.core.principles import LoadedPrinciples, verify_principles
 from verity.core.types import (
+    DEFAULT_DECAY_PARAMETERS,
     AuditEvent,
     AuditEventType,
     AuditRef,
@@ -79,7 +79,6 @@ from verity.core.types import (
     TrustSource,
     TypedFact,
     WeightedEdge,
-    DEFAULT_DECAY_PARAMETERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,7 +177,7 @@ class Session:
 
     def __init__(
         self,
-        engine: "Engine",
+        engine: Engine,
         consent_ref: ConsentRef,
         domain_module: ModuleId | None = None,
     ) -> None:
@@ -186,7 +185,7 @@ class Session:
         self._state = SessionState(
             session_id=f"session:{uuid.uuid4()}",
             consent_ref=consent_ref,
-            opened_at=datetime.now(timezone.utc),
+            opened_at=datetime.now(UTC),
             domain_module=domain_module,
         )
 
@@ -235,7 +234,7 @@ class Session:
             SessionClosedError  — session is not open
         """
         self._require_open()
-        return await self._engine.relate(
+        result = await self._engine.relate(
             text=text,
             source=source,
             classification=classification,
@@ -244,6 +243,8 @@ class Session:
             session_id=self.session_id,
             consent_ref=self._state.consent_ref,
         )
+        self._state.facts_ingested += 1
+        return result
 
     # ── NAVIGATE ──────────────────────────────────────────────────────────────
 
@@ -329,7 +330,7 @@ class Session:
         if not self._state.is_open:
             return
 
-        self._state.closed_at = datetime.now(timezone.utc)
+        self._state.closed_at = datetime.now(UTC)
         self._state.is_open = False
 
         audit_id = await self._engine.remember(AuditEvent(
@@ -400,7 +401,7 @@ class Engine:
         cls,
         modules: list[str] | None = None,
         decay_parameters: DecayParameters = DEFAULT_DECAY_PARAMETERS,
-    ) -> "Engine":
+    ) -> Engine:
         """
         Start the Verity engine.
 
@@ -446,7 +447,7 @@ class Engine:
         await engine.remember(AuditEvent(
             sequence=0,
             event_type=AuditEventType.PRINCIPLES_VERIFIED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             actor="engine",
             session_id=None,
             consent_ref=None,
@@ -584,12 +585,12 @@ class Engine:
         # ── Step 1: Crisis barrier — FIRST, ALWAYS ────────────────────────────
         try:
             check_and_raise(text=text, actor=source, session_id=session_id)
-        except Exception as crisis_exc:
+        except Exception:
             # Record the crisis event before re-raising
             await self._store.append_audit(AuditEvent(
                 sequence=0,
                 event_type=AuditEventType.CRISIS_DETECTED,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 actor=source,
                 session_id=session_id,
                 consent_ref=consent_ref,
@@ -641,7 +642,7 @@ class Engine:
         audit_id = await self._store.append_audit(AuditEvent(
             sequence=0,
             event_type=AuditEventType.INGEST,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             actor=source,
             session_id=session_id,
             consent_ref=consent_ref,
@@ -725,7 +726,7 @@ class Engine:
             logger.warning(f"YAKE extraction failed: {e}")
             keywords = []
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         prov_ref = f"prov:{uuid.uuid4()}"
         facts: list[TypedFact] = []
         edges: list[WeightedEdge] = []
@@ -802,7 +803,7 @@ class Engine:
         self._require_started()
 
         # ── Step 1: Consent gate ──────────────────────────────────────────────
-        consent = await self._validate_consent(request)
+        await self._validate_consent(request)
 
         reasoning_trace: list[str] = [
             f"Consent validated: {request.consent_ref} for purpose '{request.purpose}'",
@@ -902,7 +903,7 @@ class Engine:
         # recording each dropped fact in excluded so the caller knows what was cut
         if request.max_tokens and agent_prompt_tokens > request.max_tokens:
             while agent_prompt_tokens > request.max_tokens and included_facts:
-                removed = included_facts.pop()  # facts are sorted desc by trust; pop removes the lowest
+                removed = included_facts.pop()  # sorted desc by trust; pop removes lowest
                 excluded_notes.append(ExclusionNote(
                     entity_id=removed.entity_id,
                     entity_type=removed.entity_type,
@@ -937,7 +938,7 @@ class Engine:
         audit_id = await self._store.append_audit(AuditEvent(
             sequence=0,
             event_type=AuditEventType.CONTEXT_ASSEMBLED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             actor="engine.navigate",
             session_id=request.session_id,
             consent_ref=request.consent_ref,
@@ -964,7 +965,7 @@ class Engine:
             reasoning_trace=tuple(reasoning_trace),
             consent_ref=request.consent_ref,
             purpose=request.purpose,
-            assembled_at=datetime.now(timezone.utc),
+            assembled_at=datetime.now(UTC),
             audit_id=audit_id,
             session_id=request.session_id,
             agent_prompt=agent_prompt,
@@ -996,7 +997,7 @@ class Engine:
                 purpose=request.purpose,
             )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if consent.expires_at and now > consent.expires_at:
             raise ConsentExpiredError(
                 operation="context_query",
@@ -1242,7 +1243,7 @@ class Engine:
         Both the presentation and the decision are recorded in the audit trail.
         """
         self._require_started()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Record: checkpoint presented
         presentation_audit_id = await self._store.append_audit(AuditEvent(
@@ -1276,7 +1277,7 @@ class Engine:
             timeout_seconds=timeout_seconds,
         )
 
-        decided_at = datetime.now(timezone.utc)
+        decided_at = datetime.now(UTC)
 
         # Record: decision made
         decision_audit_id = await self._store.append_audit(AuditEvent(
@@ -1353,7 +1354,7 @@ class Engine:
             else:
                 return CheckpointDecision.VETOED, "human", "Human chose not to proceed."
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print(f"\n⏱  Timeout after {timeout_seconds}s — action VETOED by default.")
             return CheckpointDecision.VETOED, "timeout", "No response within timeout."
 
@@ -1387,7 +1388,7 @@ class Engine:
         await self._store.append_audit(AuditEvent(
             sequence=0,
             event_type=AuditEventType.DECAY_APPLIED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             actor="engine.decay",
             session_id=None,
             consent_ref=None,

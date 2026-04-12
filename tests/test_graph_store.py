@@ -9,42 +9,44 @@ Brain Test: facts, edges, and decay state survive read/write cycles.
 
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from datetime import UTC, datetime
+
+import pytest_asyncio
 
 from verity.core.graph_store import GraphStore
 from verity.core.graph_store.rdflib_store import RDFLibStore
 from verity.core.graph_store.registry import get_graph_store
 from verity.core.types import (
+    DEFAULT_DECAY_PARAMETERS,
     AuditEvent,
     AuditEventType,
     ConsentRecord,
+    ContextRequest,
     DataClassification,
-    DecayParameters,
     ThreeAxisWeight,
     TypedFact,
     WeightedEdge,
-    DEFAULT_DECAY_PARAMETERS,
-    ContextRequest,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def store() -> RDFLibStore:
     """Fresh in-memory store for each test."""
     s = RDFLibStore(path=None, decay_parameters=DEFAULT_DECAY_PARAMETERS)
     await s.initialize()
-    return s
+    yield s
+    await s.close()
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _fact(entity_id: str = "kw:test", classification: str = DataClassification.INTERNAL) -> TypedFact:
+def _fact(
+    entity_id: str = "kw:test",
+    classification: str = DataClassification.INTERNAL,
+) -> TypedFact:
     return TypedFact(
         entity_id=entity_id,
         entity_type="verity:Keyword",

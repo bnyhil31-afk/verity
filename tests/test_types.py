@@ -10,30 +10,27 @@ with an empty reasoning_trace, the architecture has failed.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 
 from verity.core.types import (
-    CheckpointDecision,
+    DEFAULT_DECAY_PARAMETERS,
     Completeness,
     ContextBundle,
-    ContextRequest,
     DataClassification,
     DecayParameters,
-    ExclusionNote,
     ModuleManifest,
     ThreeAxisWeight,
     TrustSource,
     TypedFact,
     WeightedEdge,
-    DEFAULT_DECAY_PARAMETERS,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _fact(
