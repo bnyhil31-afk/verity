@@ -195,23 +195,26 @@ class RDFLibStore:
         self,
         fact: TypedFact,
         session_id: SessionId | None = None,
-    ) -> None:
-        """Write or reinforce a TypedFact in the knowledge Named Graph."""
+    ) -> bool:
+        """
+        Write or reinforce a TypedFact in the knowledge Named Graph.
+        Returns True if this was a new fact, False if it was a reinforcement.
+        """
         g = self._named(KNOWLEDGE_GRAPH)
         subj = _uri(VK, f"fact/{fact.entity_id}")
 
         # Check if fact already exists — if so, reinforce trust_score
-        existing = (subj, RDF.type, None)
         if (subj, RDF.type, _uri(VK, fact.entity_type)) in g:
-            # Reinforce: bump trust_score slightly (averaging with existing)
+            # Reinforce: take the higher of existing and incoming trust_score,
+            # then apply a small bump (bounded at 1.0) to reward repetition
             existing_score = float(
                 g.value(subj, VK.trust_score) or fact.trust_score
             )
-            new_score = min(1.0, (existing_score + fact.trust_score) / 2 + 0.05)
+            new_score = min(1.0, max(existing_score, fact.trust_score) + 0.05)
             g.set((subj, VK.trust_score, _lit(new_score, XSD.float)))
             g.set((subj, VK.last_reinforced, _lit(_now_iso())))
             logger.debug(f"Reinforced fact: {fact.entity_id}")
-            return
+            return False  # reinforcement, not a new fact
 
         # New fact
         g.add((subj, RDF.type,              _uri(VK, fact.entity_type)))
@@ -235,26 +238,31 @@ class RDFLibStore:
                    _lit(json.dumps(fact.domain_properties))))
 
         logger.debug(f"Wrote fact: {fact.entity_id} ({fact.entity_type})")
+        return True  # new fact
 
     async def write_edge(
         self,
         edge: WeightedEdge,
         session_id: SessionId | None = None,
-    ) -> None:
-        """Write or update a WeightedEdge in the knowledge Named Graph."""
+    ) -> bool:
+        """
+        Write or reinforce a WeightedEdge in the knowledge Named Graph.
+        Returns True if this was a new edge, False if it was a reinforcement.
+        """
         g = self._named(KNOWLEDGE_GRAPH)
         subj = _uri(VK, f"edge/{edge.edge_id}")
 
         # Check for existing edge
         if (subj, VK.edge_id, None) in g:
-            # Update effective_weight and reinforcement_count
+            # Reinforce: keep the higher effective_weight, increment count
             count = int(g.value(subj, VK.reinforcement_count) or 0)
+            existing_weight = float(g.value(subj, VK.effective_weight) or 0.0)
             g.set((subj, VK.effective_weight,
-                   _lit(edge.effective_weight, XSD.float)))
+                   _lit(max(existing_weight, edge.effective_weight), XSD.float)))
             g.set((subj, VK.reinforcement_count, _lit(count + 1, XSD.integer)))
             g.set((subj, VK.last_reinforced, _lit(_now_iso())))
             logger.debug(f"Reinforced edge: {edge.edge_id}")
-            return
+            return False  # reinforcement, not a new edge
 
         # New edge
         g.add((subj, VK.edge_id,              _lit(edge.edge_id)))
@@ -273,6 +281,7 @@ class RDFLibStore:
         g.add((subj, VK.provenance_ref,       _lit(edge.provenance_ref)))
 
         logger.debug(f"Wrote edge: {edge.source_id} → {edge.target_id}")
+        return True  # new edge
 
     # ── NAVIGATE ──────────────────────────────────────────────────────────────
 
@@ -390,7 +399,7 @@ class RDFLibStore:
 
                 # Reinforcement count — spacing bonus
                 reinf_count = int(g.value(subj, VK.reinforcement_count) or 0)
-                spacing_bonus = min(params.spacing_cap, 1.0 + days / 30.0) if reinf_count > 1 else 1.0
+                spacing_bonus = min(params.spacing_cap, 1.0 + days / 30.0) if reinf_count >= 1 else 1.0
 
                 # Power-law decay
                 new_weight = base * spacing_bonus * ((1 + days) ** (-exponent))
@@ -459,8 +468,16 @@ class RDFLibStore:
         classifications = tuple(classifications_raw)
 
         expires_at_val = g.value(subj, VC.expires_at)
-        revoked_at_val = g.value(subj, VC.revoked_at)
-        revoked_by_val = g.value(subj, VC.revoked_by)
+
+        # Look for a revocation node linked to this consent ref (append-only)
+        revoked_at_val = None
+        revoked_by_val = None
+        revocation_audit_id_val = None
+        for rev_subj in g.subjects(VC.revokes, subj):
+            revoked_at_val = g.value(rev_subj, VC.revoked_at)
+            revoked_by_val = g.value(rev_subj, VC.revoked_by)
+            revocation_audit_id_val = g.value(rev_subj, VC.revocation_audit_id)
+            break  # Only one revocation can exist per consent ref
 
         return ConsentRecord(
             consent_ref=consent_ref,
@@ -473,6 +490,7 @@ class RDFLibStore:
             expires_at=_parse_dt(str(expires_at_val)) if expires_at_val else None,
             revoked_at=_parse_dt(str(revoked_at_val)) if revoked_at_val else None,
             revoked_by=str(revoked_by_val) if revoked_by_val else None,
+            revocation_audit_id=int(revocation_audit_id_val) if revocation_audit_id_val else None,
         )
 
     async def revoke_consent(
@@ -481,13 +499,21 @@ class RDFLibStore:
         revoked_by: str,
         audit_id: AuditRef,
     ) -> None:
-        """Mark a ConsentRecord as revoked. The record is never deleted."""
+        """
+        Record a consent revocation as a new append-only node linked to
+        the original grant. The original grant node is never modified —
+        this preserves the append-only invariant of the consent named graph.
+        """
         g = self._named(CONSENT_GRAPH)
-        subj = _uri(VC, f"consent/{consent_ref}")
+        revoked_at = _now_iso()
 
-        g.set((subj, VC.revoked_at, _lit(_now_iso())))
-        g.set((subj, VC.revoked_by, _lit(revoked_by)))
-        g.set((subj, VC.revocation_audit_id, _lit(audit_id, XSD.integer)))
+        # Write a new revocation node rather than mutating the original grant
+        revocation_subj = _uri(VC, f"revocation/{consent_ref}/{audit_id}")
+        g.add((revocation_subj, VC.revokes,            _uri(VC, f"consent/{consent_ref}")))
+        g.add((revocation_subj, VC.consent_ref,        _lit(consent_ref)))
+        g.add((revocation_subj, VC.revoked_at,         _lit(revoked_at)))
+        g.add((revocation_subj, VC.revoked_by,         _lit(revoked_by)))
+        g.add((revocation_subj, VC.revocation_audit_id, _lit(audit_id, XSD.integer)))
 
         logger.info(f"Consent revoked: {consent_ref} by {revoked_by}")
 
@@ -601,11 +627,11 @@ class RDFLibStore:
         facts_erased = 0
         edges_erased = 0
 
-        # Find all facts belonging to this subject
+        # Find all facts belonging to this subject (exact match only)
         subject_facts: list[URIRef] = []
         for subj in g.subjects(VK.entity_id, None):
             entity_id_val = str(g.value(subj, VK.entity_id) or "")
-            if subject_id in entity_id_val:
+            if entity_id_val == subject_id:
                 subject_facts.append(subj)
 
         # Remove facts and their connected edges

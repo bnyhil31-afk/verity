@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any
 
 
@@ -52,7 +53,7 @@ AuditRef      = int   # Monotonically increasing sequence. Never reused.
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
 
-class DataClassification(str):
+class DataClassification(StrEnum):
     """
     Sensitivity classification for facts, edges, and context bundles.
     Inherits str so values serialize cleanly to/from RDF literals and JSON.
@@ -189,6 +190,8 @@ class AuditEventType(str):
     PRINCIPLES_VERIFIED   = "principles_verified" # Boot-time check passed
     CANARY_PASSED         = "canary_passed"
     CANARY_FAILED         = "canary_failed"        # Engine halts on this
+    SESSION_OPENED        = "session_opened"
+    SESSION_CLOSED        = "session_closed"
 
 
 # ── The movement: core scientific types ──────────────────────────────────────

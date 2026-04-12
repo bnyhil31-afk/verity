@@ -29,28 +29,16 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Path to principles.yaml — resolved relative to the package root
-_PACKAGE_ROOT = Path(__file__).parent.parent
+# Path to principles.yaml — resolved relative to the repo root
+# __file__ is verity/core/principles.py, so .parent.parent.parent is the repo root
+_PACKAGE_ROOT = Path(__file__).parent.parent.parent
 PRINCIPLES_PATH = _PACKAGE_ROOT / "principles.yaml"
 SIGNATURE_PATH  = _PACKAGE_ROOT / "principles.sig"
 
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
 
-
-class PrinciplesError(RuntimeError):
-    """
-    Raised when principles verification fails.
-    The engine must not start when this is raised.
-    """
-
-
-class SignatureError(PrinciplesError):
-    """Cryptographic signature is missing, invalid, or does not match content."""
-
-
-class CanaryError(PrinciplesError):
-    """A behavioral canary test failed. The system does not behave as declared."""
+from verity.core.exceptions import CanaryError, PrinciplesError, SignatureError  # noqa: F401
 
 
 # ── Principles loading ────────────────────────────────────────────────────────

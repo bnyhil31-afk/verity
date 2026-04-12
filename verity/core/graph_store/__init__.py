@@ -82,10 +82,11 @@ class GraphStore(Protocol):
         self,
         fact: TypedFact,
         session_id: SessionId | None = None,
-    ) -> None:
+    ) -> bool:
         """
         Write a TypedFact to the knowledge graph.
         If a fact with the same entity_id exists, reinforce it.
+        Returns True if this was a new fact, False if it was a reinforcement.
         """
         ...
 
@@ -93,11 +94,12 @@ class GraphStore(Protocol):
         self,
         edge: WeightedEdge,
         session_id: SessionId | None = None,
-    ) -> None:
+    ) -> bool:
         """
         Write a WeightedEdge to the knowledge graph.
         If an edge with the same edge_id exists, update effective_weight
         and increment reinforcement_count.
+        Returns True if this was a new edge, False if it was a reinforcement.
         """
         ...
 

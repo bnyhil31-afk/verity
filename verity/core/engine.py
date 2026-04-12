@@ -334,7 +334,7 @@ class Session:
 
         audit_id = await self._engine.remember(AuditEvent(
             sequence=0,  # Assigned by append_audit
-            event_type=AuditEventType.CONTEXT_ASSEMBLED,
+            event_type=AuditEventType.SESSION_CLOSED,
             timestamp=self._state.closed_at,
             actor="session",
             session_id=self.session_id,
@@ -619,15 +619,23 @@ class Engine:
 
         # ── Step 3 & 4: Write to graph ────────────────────────────────────────
         facts_added: list[TypedFact] = []
+        facts_updated: list[TypedFact] = []
         edges_added: list[WeightedEdge] = []
+        edges_updated: list[WeightedEdge] = []
 
         for fact in facts:
-            await self._store.write_fact(fact, session_id=session_id)
-            facts_added.append(fact)
+            is_new = await self._store.write_fact(fact, session_id=session_id)
+            if is_new:
+                facts_added.append(fact)
+            else:
+                facts_updated.append(fact)
 
         for edge in edges:
-            await self._store.write_edge(edge, session_id=session_id)
-            edges_added.append(edge)
+            is_new = await self._store.write_edge(edge, session_id=session_id)
+            if is_new:
+                edges_added.append(edge)
+            else:
+                edges_updated.append(edge)
 
         # ── Step 5: REMEMBER ──────────────────────────────────────────────────
         audit_id = await self._store.append_audit(AuditEvent(
@@ -638,9 +646,11 @@ class Engine:
             session_id=session_id,
             consent_ref=consent_ref,
             payload={
-                "facts_added":  len(facts_added),
-                "edges_added":  len(edges_added),
-                "source":       source,
+                "facts_added":    len(facts_added),
+                "facts_updated":  len(facts_updated),
+                "edges_added":    len(edges_added),
+                "edges_updated":  len(edges_updated),
+                "source":         source,
                 "classification": classification,
             },
             content_hash="",
@@ -651,8 +661,8 @@ class Engine:
         return RelateResult(
             facts_added=tuple(facts_added),
             edges_added=tuple(edges_added),
-            facts_updated=(),
-            edges_updated=(),
+            facts_updated=tuple(facts_updated),
+            edges_updated=tuple(edges_updated),
             crisis_detected=False,
             audit_id=audit_id,
             session_id=session_id,
@@ -815,18 +825,29 @@ class Engine:
             if node_count >= _PPR_THRESHOLD:
                 reasoning_trace.append(
                     f"Graph size {node_count} ≥ {_PPR_THRESHOLD}: "
-                    f"PPR traversal (not yet implemented, falling back to BFS)"
+                    f"PPR traversal not yet implemented, falling back to BFS"
                 )
             traversed_facts, traversed_edges = await self._bfs_traverse(
                 seed_facts=seed_facts,
                 request=request,
                 reasoning_trace=reasoning_trace,
             )
-            all_facts = list({f.entity_id: f for f in [*seed_facts, *traversed_facts]}.values())
+            # Deduplicate facts by entity_id, keeping the one with higher trust_score
+            merged: dict[str, TypedFact] = {}
+            for f in [*seed_facts, *traversed_facts]:
+                if f.entity_id not in merged or f.trust_score > merged[f.entity_id].trust_score:
+                    merged[f.entity_id] = f
+            duplicates = len(seed_facts) + len(traversed_facts) - len(merged)
+            if duplicates:
+                reasoning_trace.append(
+                    f"Deduplication: {duplicates} duplicate fact(s) merged "
+                    f"(kept higher trust_score)"
+                )
+            all_facts = list(merged.values())
             all_edges = traversed_edges
 
         # ── Step 4: Rank, filter, assemble ───────────────────────────────────
-        included_facts, excluded_notes, reasoning_trace = self._rank_and_filter(
+        included_facts, included_edges, excluded_notes, reasoning_trace = self._rank_and_filter(
             facts=all_facts,
             edges=all_edges,
             request=request,
@@ -868,7 +889,7 @@ class Engine:
 
         agent_prompt = _assemble_agent_prompt(
             facts=included_facts,
-            edges=all_edges,
+            edges=included_edges,
             excluded=excluded_notes,
             uncertainty=uncertainty,
             completeness=completeness,
@@ -877,12 +898,32 @@ class Engine:
         )
         agent_prompt_tokens = _estimate_tokens(agent_prompt)
 
-        # Token limit truncation
+        # Token limit truncation — remove lowest-trust facts until prompt fits,
+        # recording each dropped fact in excluded so the caller knows what was cut
         if request.max_tokens and agent_prompt_tokens > request.max_tokens:
-            max_chars = request.max_tokens * _CHARS_PER_TOKEN
-            agent_prompt = agent_prompt[:max_chars] + "\n[TRUNCATED: token limit reached]"
-            agent_prompt_tokens = request.max_tokens
-            reasoning_trace.append(f"agent_prompt truncated to {request.max_tokens} tokens")
+            while agent_prompt_tokens > request.max_tokens and included_facts:
+                removed = included_facts.pop()  # facts are sorted desc by trust; pop removes the lowest
+                excluded_notes.append(ExclusionNote(
+                    entity_id=removed.entity_id,
+                    entity_type=removed.entity_type,
+                    classification=removed.classification,
+                    reason="token_limit",
+                ))
+                agent_prompt = _assemble_agent_prompt(
+                    facts=included_facts,
+                    edges=included_edges,
+                    excluded=excluded_notes,
+                    uncertainty=uncertainty,
+                    completeness=completeness,
+                    purpose=request.purpose,
+                    domain_module=request.domain_module,
+                )
+                agent_prompt_tokens = _estimate_tokens(agent_prompt)
+            reasoning_trace.append(
+                f"Token limit ({request.max_tokens}): "
+                f"{len(included_facts)} fact(s) kept, "
+                f"{sum(1 for n in excluded_notes if n.reason == 'token_limit')} dropped"
+            )
 
         # Checkpoint required?
         checkpoint_required, checkpoint_context = self._assess_checkpoint(
@@ -916,7 +957,7 @@ class Engine:
 
         return ContextBundle(
             facts=tuple(included_facts),
-            edges=tuple(all_edges),
+            edges=tuple(included_edges),
             uncertainty=uncertainty,
             completeness=completeness,
             excluded=tuple(excluded_notes),
@@ -1028,10 +1069,11 @@ class Engine:
         edges: list[WeightedEdge],
         request: ContextRequest,
         reasoning_trace: list[str],
-    ) -> tuple[list[TypedFact], list[ExclusionNote], list[str]]:
+    ) -> tuple[list[TypedFact], list[WeightedEdge], list[ExclusionNote], list[str]]:
         """
         Rank facts by trust_score and filter by classification/weight.
-        Returns (included, excluded, updated_reasoning_trace).
+        Also filters edges to only those connecting included facts.
+        Returns (included_facts, included_edges, excluded, updated_reasoning_trace).
         """
         included: list[TypedFact] = []
         excluded: list[ExclusionNote] = []
@@ -1077,7 +1119,18 @@ class Engine:
         # Rank by trust_score descending
         included.sort(key=lambda f: f.trust_score, reverse=True)
 
-        return included, excluded, reasoning_trace
+        # Filter edges: only keep edges where both endpoints are in included facts
+        # and the edge itself passes classification and weight thresholds
+        included_ids = {f.entity_id for f in included}
+        included_edges = [
+            e for e in edges
+            if e.source_id in included_ids
+            and e.target_id in included_ids
+            and e.classification in request.include_classifications
+            and e.effective_weight >= request.min_weight
+        ]
+
+        return included, included_edges, excluded, reasoning_trace
 
     def _calculate_uncertainty(
         self,
