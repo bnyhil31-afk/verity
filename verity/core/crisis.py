@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
 from verity.core.exceptions import CrisisBarrierError
 
@@ -95,12 +95,12 @@ _CRISIS_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"\bno\s+reason\s+to\s+(live|go\s+on|keep\s+going)\b",
         r"\bbetter\s+off\s+(dead|without\s+me)\b",
         r"\bcan'?t\s+(go\s+on|keep\s+going|do\s+this\s+anymore)\b",
-        r"\bwish\s+I\s+(was|were|wasn'?t|hadn'?t)\s+(born|alive|here)\b",
+        r"\bwish\s+I\s+(was|were|wasn'?t|hadn'?t)\s+(\w+\s+)?(born|alive|here)\b",
         r"\bdon'?t\s+want\s+to\s+(wake\s+up|be\s+alive|exist)\b",
 
         # Self-harm
         r"\bhurt(ing)?\s+(myself|my\s+self)\b",
-        r"\bself[\s-]?harm\b",
+        r"\bself[\s-]?harm(ing)?\b",
         r"\bcut(ting)?\s+(myself|my\s+(arms?|wrists?|legs?|body))\b",
 
         # Crisis states
@@ -199,26 +199,12 @@ def check_and_raise(
     if not is_crisis_input(text):
         return
 
-    detected_at = datetime.now(timezone.utc)
     excerpt = text[:100].strip()
 
     logger.critical(
         f"CRISIS BARRIER FIRED | actor={actor} | "
         f"session={session_id} | excerpt='{excerpt[:40]}...'"
     )
-
-    resources = (*additional_resources, *DEFAULT_CRISIS_RESOURCES)
-
-    # Build the audit payload — passed to REMEMBER by the caller
-    audit_payload = {
-        "detected_at": detected_at.isoformat(),
-        "actor": actor,
-        "session_id": session_id,
-        # Deliberately omit the full input — store only detection confirmation
-        "crisis_detected": True,
-        "patterns_version": "1.0",
-        "resources_offered": [r.name for r in resources],
-    }
 
     raise CrisisBarrierError(input_excerpt=excerpt)
 

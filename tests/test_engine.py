@@ -15,34 +15,33 @@ These tests mock the principles check to isolate engine behavior.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from verity.core.engine import Engine
 from verity.core.exceptions import (
-    CrisisBarrierError,
     ConsentRequiredError,
+    CrisisBarrierError,
     EngineNotStartedError,
     SessionClosedError,
 )
 from verity.core.graph_store.rdflib_store import RDFLibStore
 from verity.core.principles import LoadedPrinciples
 from verity.core.types import (
+    DEFAULT_DECAY_PARAMETERS,
     AuditEventType,
     CheckpointDecision,
     Completeness,
     ConsentRecord,
     DataClassification,
-    DEFAULT_DECAY_PARAMETERS,
     ProposedAction,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _mock_principles() -> LoadedPrinciples:
@@ -336,7 +335,6 @@ class TestSession:
         await _add_consent(engine)
 
         async with engine.session(consent_ref="consent:test") as s:
-            session_id = s.session_id
             assert s.state.is_open is True
 
         assert s.state.is_open is False
@@ -365,7 +363,7 @@ class TestSession:
         await _add_consent(engine)
 
         stats_before = await engine.stats()
-        async with engine.session(consent_ref="consent:test") as s:
+        async with engine.session(consent_ref="consent:test"):
             pass
         stats_after = await engine.stats()
 
@@ -384,7 +382,7 @@ class TestGovern:
         engine = await _make_engine()
         await _add_consent(engine)
 
-        from verity.core.types import ContextBundle, ExclusionNote
+        from verity.core.types import ContextBundle
         context_bundle = ContextBundle(
             facts=(),
             edges=(),

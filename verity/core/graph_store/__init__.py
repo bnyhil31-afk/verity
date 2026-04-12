@@ -36,10 +36,12 @@ from verity.core.types import (
     ConsentRef,
     ContextRequest,
     EntityId,
-    RelateResult,
     SessionId,
     TypedFact,
     WeightedEdge,
+)
+from verity.core.types import (
+    RelateResult as RelateResult,
 )
 
 

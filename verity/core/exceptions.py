@@ -14,7 +14,6 @@ Design discipline:
 
 from __future__ import annotations
 
-
 # ── Base ──────────────────────────────────────────────────────────────────────
 
 

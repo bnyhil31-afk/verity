@@ -30,8 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +39,8 @@ from rdflib.namespace import RDF, XSD
 
 from verity.core.exceptions import GraphStoreError
 from verity.core.types import (
+    DEFAULT_DECAY_PARAMETERS,
     AuditEvent,
-    AuditEventType,
     AuditRef,
     ConsentRecord,
     ConsentRef,
@@ -51,10 +50,8 @@ from verity.core.types import (
     EntityId,
     SessionId,
     ThreeAxisWeight,
-    TrustSource,
     TypedFact,
     WeightedEdge,
-    DEFAULT_DECAY_PARAMETERS,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +89,7 @@ def _lit(value: Any, datatype=XSD.string) -> Literal:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _parse_dt(value: str) -> datetime:
@@ -369,7 +366,7 @@ class RDFLibStore:
         Edges below prune_threshold are removed.
         """
         g = self._named(KNOWLEDGE_GRAPH)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         params = self._decay
 
         edges_decayed = 0
@@ -399,7 +396,9 @@ class RDFLibStore:
 
                 # Reinforcement count — spacing bonus
                 reinf_count = int(g.value(subj, VK.reinforcement_count) or 0)
-                spacing_bonus = min(params.spacing_cap, 1.0 + days / 30.0) if reinf_count >= 1 else 1.0
+                spacing_bonus = (
+                    min(params.spacing_cap, 1.0 + days / 30.0) if reinf_count >= 1 else 1.0
+                )
 
                 # Power-law decay
                 new_weight = base * spacing_bonus * ((1 + days) ** (-exponent))
@@ -571,11 +570,19 @@ class RDFLibStore:
             event_type=str(g.value(subj, VP.event_type) or ""),
             timestamp=_parse_dt(str(timestamp_val)),
             actor=str(g.value(subj, VP.actor) or ""),
-            session_id=str(g.value(subj, VP.session_id)) if g.value(subj, VP.session_id) else None,
-            consent_ref=str(g.value(subj, VP.consent_ref)) if g.value(subj, VP.consent_ref) else None,
+            session_id=(
+                str(g.value(subj, VP.session_id)) if g.value(subj, VP.session_id) else None
+            ),
+            consent_ref=(
+                str(g.value(subj, VP.consent_ref)) if g.value(subj, VP.consent_ref) else None
+            ),
             payload=json.loads(str(g.value(subj, VP.payload) or "{}")),
             content_hash=str(g.value(subj, VP.content_hash) or ""),
-            previous_hash=str(g.value(subj, VP.previous_hash)) if g.value(subj, VP.previous_hash) else None,
+            previous_hash=(
+                str(g.value(subj, VP.previous_hash))
+                if g.value(subj, VP.previous_hash)
+                else None
+            ),
             chain_valid=True,  # Verified separately by verify_chain()
         )
 
@@ -665,7 +672,6 @@ class RDFLibStore:
     async def stats(self) -> dict[str, Any]:
         """Return store statistics."""
         kg = self._named(KNOWLEDGE_GRAPH)
-        pg = self._named(PROVENANCE_GRAPH)
 
         facts = sum(1 for _ in kg.subjects(VK.entity_id, None))
         edges = sum(1 for _ in kg.subjects(VK.edge_id, None))
@@ -701,8 +707,16 @@ class RDFLibStore:
                 created_at=_parse_dt(str(g.value(subj, VK.created_at) or _now_iso())),
                 source=str(g.value(subj, VK.source) or "unknown"),
                 domain_properties=domain_props,
-                domain_module=str(g.value(subj, VK.domain_module)) if g.value(subj, VK.domain_module) else None,
-                external_id=str(g.value(subj, VK.external_id)) if g.value(subj, VK.external_id) else None,
+                domain_module=(
+                    str(g.value(subj, VK.domain_module))
+                    if g.value(subj, VK.domain_module)
+                    else None
+                ),
+                external_id=(
+                    str(g.value(subj, VK.external_id))
+                    if g.value(subj, VK.external_id)
+                    else None
+                ),
             )
         except Exception as e:
             logger.warning(f"Failed to reconstruct fact {entity_id}: {e}")
