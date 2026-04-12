@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any
 
 
@@ -52,7 +53,7 @@ AuditRef      = int   # Monotonically increasing sequence. Never reused.
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
 
-class DataClassification(str):
+class DataClassification(StrEnum):
     """
     Sensitivity classification for facts, edges, and context bundles.
     Inherits str so values serialize cleanly to/from RDF literals and JSON.
