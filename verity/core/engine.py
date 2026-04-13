@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -55,6 +56,7 @@ from verity.core.exceptions import (
 from verity.core.graph_store import GraphStore
 from verity.core.graph_store.registry import get_graph_store
 from verity.core.principles import LoadedPrinciples, verify_principles
+from verity.core.profiles import EngineProfile, get_profile
 from verity.core.types import (
     DEFAULT_DECAY_PARAMETERS,
     AuditEvent,
@@ -456,48 +458,75 @@ class Engine:
         principles: LoadedPrinciples,
         decay_parameters: DecayParameters = DEFAULT_DECAY_PARAMETERS,
         modules: dict[ModuleId, ModuleManifest] | None = None,
+        profile: EngineProfile | None = None,
     ) -> None:
         self._store = store
         self._principles = principles
         self._decay = decay_parameters
         self._modules: dict[ModuleId, ModuleManifest] = modules or {}
         self._started = False
+        self._profile = profile
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @classmethod
     async def start(
         cls,
+        profile: str | EngineProfile = "personal",
         modules: list[str] | None = None,
-        decay_parameters: DecayParameters = DEFAULT_DECAY_PARAMETERS,
+        decay_parameters: DecayParameters | None = None,
     ) -> Engine:
         """
         Start the Verity engine.
 
-        1. Verifies principles.yaml (signature + canary tests)
-        2. Initializes the graph store
-        3. Loads domain modules
-        4. Records PRINCIPLES_VERIFIED audit event
+        1. Resolves deployment profile (string name or EngineProfile instance)
+        2. Verifies principles.yaml (signature + canary tests)
+        3. Initializes the graph store
+        4. Loads domain modules
+        5. Records PRINCIPLES_VERIFIED audit event
 
         Args:
+            profile:           Deployment profile. String name ("personal",
+                               "developer", "professional", "enterprise") or
+                               an EngineProfile instance. Default: "personal".
             modules:           List of domain module IDs to load.
                                Example: ["fhir_r4", "gdpr"]
-            decay_parameters:  Override decay constants (uses defaults if None)
+            decay_parameters:  Override decay constants. When None (default),
+                               the profile's decay_parameters are used.
 
         Returns:
             A started Engine ready to accept sessions.
 
         Raises:
+            ValueError      — unknown profile name
             PrinciplesError — principles verification failed, engine will not start
             CanaryError     — behavioral canary failed, engine will not start
         """
         logger.info("Starting Verity engine...")
 
+        # Resolve profile — string name or EngineProfile instance
+        if isinstance(profile, str):
+            resolved_profile: EngineProfile = get_profile(profile)
+        else:
+            resolved_profile = profile
+
+        # Resolve decay parameters — explicit arg overrides profile defaults
+        effective_decay: DecayParameters = (
+            decay_parameters
+            if decay_parameters is not None
+            else resolved_profile.decay_parameters
+        )
+
+        # Set graph backend from profile if not already configured in environment.
+        # Environment variable takes precedence — profile is the default.
+        if "VERITY_GRAPH_BACKEND" not in os.environ:
+            os.environ["VERITY_GRAPH_BACKEND"] = resolved_profile.graph_store_backend
+
         # Step 1: Verify principles — halt if either check fails
         principles = verify_principles()
 
         # Step 2: Initialize graph store
-        store = get_graph_store(decay_parameters=decay_parameters)
+        store = get_graph_store(decay_parameters=effective_decay)
         await store.initialize()
 
         # Step 3: Load domain modules
@@ -507,8 +536,9 @@ class Engine:
         engine = cls(
             store=store,
             principles=principles,
-            decay_parameters=decay_parameters,
+            decay_parameters=effective_decay,
             modules=loaded_modules,
+            profile=resolved_profile,
         )
         engine._started = True
 
@@ -525,6 +555,7 @@ class Engine:
                 "principles_sequence": principles.sequence,
                 "content_hash": principles.content_hash,
                 "modules_loaded": list(loaded_modules.keys()),
+                "profile": resolved_profile.name,
             },
             content_hash="",
             previous_hash=None,
@@ -533,6 +564,7 @@ class Engine:
 
         logger.info(
             f"Verity engine started | "
+            f"profile={resolved_profile.name} | "
             f"modules={list(loaded_modules.keys()) or 'none'} | "
             f"backend={type(store).__name__}"
         )
@@ -1566,4 +1598,5 @@ class Engine:
             "modules": list(self._modules.keys()),
             "principles_version": self._principles.version,
             "principles_sequence": self._principles.sequence,
+            "profile": self._profile.name if self._profile is not None else None,
         }
