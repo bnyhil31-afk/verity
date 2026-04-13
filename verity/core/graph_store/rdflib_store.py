@@ -161,18 +161,16 @@ class RDFLibStore:
     def _select_store_backend(self) -> str:
         """
         Select the rdflib store backend.
-        Prefers pyoxigraph if installed (10-100x faster SPARQL).
+        Prefers oxrdflib/pyoxigraph if installed (37x faster SPARQL).
         Falls back to rdflib's default memory store.
         """
-        if self._path:
-            try:
-                import pyoxigraph  # noqa: F401
-                logger.info("pyoxigraph detected — using Oxigraph store backend")
-                return "Oxigraph"
-            except ImportError:
-                pass
+        try:
+            import oxrdflib  # noqa: F401
+            logger.info("oxrdflib detected — using Oxigraph store (37x faster SPARQL)")
+            return "Oxigraph"
+        except ImportError:
+            logger.debug("oxrdflib not available — using rdflib default store")
             return "default"
-        return "default"  # In-memory
 
     def _g(self) -> ConjunctiveGraph:
         """Return the graph, raising if not initialized."""

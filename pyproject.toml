@@ -47,9 +47,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Performance tier — Rust-backed SPARQL (10-100x speedup)
+# Performance tier — Rust-backed SPARQL (37x speedup via oxrdflib bridge)
 fast = [
     "pyoxigraph>=0.3.22",      # MIT/Apache-2.0, Rust-backed
+    "oxrdflib>=0.5.0",         # oxrdflib rdflib store bridge
 ]
 
 # Team tier — PostgreSQL backend
