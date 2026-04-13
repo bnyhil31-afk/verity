@@ -47,6 +47,14 @@ from verity.core.exceptions import (
     ValidationError,
     VerityError,
 )
+from verity.core.profiles import (
+    DEVELOPER,
+    ENTERPRISE,
+    PERSONAL,
+    PROFESSIONAL,
+    EngineProfile,
+    get_profile,
+)
 from verity.core.types import (
     DEFAULT_DECAY_PARAMETERS,
     # REMEMBER
@@ -95,6 +103,13 @@ __all__ = [
     # Engine
     "Engine",
     "Session",
+    # Profiles
+    "EngineProfile",
+    "get_profile",
+    "PERSONAL",
+    "DEVELOPER",
+    "PROFESSIONAL",
+    "ENTERPRISE",
     # Type aliases
     "AuditRef",
     "ConsentRef",
