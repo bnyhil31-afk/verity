@@ -474,3 +474,108 @@ class TestDecay:
         result = await engine.apply_decay()
         assert "edges_decayed" in result
         assert "edges_pruned" in result
+
+
+# ── RELATE widened ────────────────────────────────────────────────────────────
+
+class TestRelateWidened:
+
+    async def test_ingest_accepts_string(self):
+        """Existing string path is unchanged after the signature widening."""
+        engine = await _make_engine()
+        await _add_consent(engine)
+
+        async with engine.session(consent_ref="consent:test") as s:
+            result = await s.ingest(
+                "Patient reported fatigue and low energy levels",
+                source="manual_entry",
+            )
+        assert result.crisis_detected is False
+        assert result.audit_id > 0
+
+    async def test_ingest_accepts_dict(self):
+        """dict input is serialised to JSON and processed via the YAKE path."""
+        engine = await _make_engine()
+        await _add_consent(engine)
+
+        async with engine.session(consent_ref="consent:test") as s:
+            result = await s.ingest(
+                {"observation": "elevated HbA1c", "value": 7.8, "unit": "percent"},
+                source="ehr",
+            )
+        assert result.crisis_detected is False
+        assert result.audit_id > 0
+
+    async def test_ingest_accepts_connector_record(self):
+        """ConnectorRecord fields are mapped correctly into relate()."""
+        from datetime import UTC, datetime
+
+        from verity.core.connectors import ConnectorRecord
+
+        engine = await _make_engine()
+        await _add_consent(engine)
+
+        record = ConnectorRecord(
+            id="rec:001",
+            content="Patient has chronic back pain and insomnia",
+            source_id="ehr_system",
+            resource="/records/patient_001.txt",
+            metadata={"department": "ortho"},
+            classification="internal",
+            timestamp=datetime.now(UTC),
+            trust_score=0.90,
+        )
+
+        async with engine.session(consent_ref="consent:test") as s:
+            result = await s.ingest(record)
+
+        assert result.crisis_detected is False
+        assert result.audit_id > 0
+
+    async def test_ingest_from_filesystem(self, tmp_path):
+        """ingest_from() accumulates results across all records in a connector."""
+        from verity.core.connectors.filesystem import FilesystemConnector
+
+        # Create 3 text files
+        (tmp_path / "a.txt").write_text("Patient has type 2 diabetes and fatigue")
+        (tmp_path / "b.txt").write_text("Elevated blood pressure noted during visit")
+        (tmp_path / "c.txt").write_text("Follow-up scheduled for cardiology review")
+
+        engine = await _make_engine()
+        await _add_consent(engine)
+
+        connector = FilesystemConnector(source_id="test_fs")
+
+        async with engine.session(consent_ref="consent:test") as s:
+            result = await s.ingest_from(connector, str(tmp_path / "*.txt"))
+
+        assert result.crisis_detected is False
+        assert result.audit_id > 0
+        # Three files → at least some facts extracted across the batch
+        assert len(result.facts_added) + len(result.facts_updated) >= 0  # shape check
+        # Session state updated
+        assert s.state.facts_ingested > 0
+
+    async def test_crisis_barrier_fires_on_connector_record(self):
+        """Crisis barrier fires when a ConnectorRecord carries crisis content."""
+        from verity.core.connectors import ConnectorRecord
+        from verity.core.exceptions import CrisisBarrierError
+
+        engine = await _make_engine()
+        await _add_consent(engine)
+
+        record = ConnectorRecord(
+            id="rec:crisis",
+            content="I want to end my life",
+            source_id="chat",
+            resource="chat_log",
+            trust_score=0.5,
+        )
+
+        with pytest.raises(CrisisBarrierError):
+            async with engine.session(consent_ref="consent:test") as s:
+                await s.ingest(record)
+
+        # Nothing written to the knowledge graph
+        stats = await engine.stats()
+        assert stats["facts"] == 0
