@@ -34,6 +34,7 @@ Design discipline:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -41,6 +42,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+from verity.core.connectors import Connector, ConnectorRecord
 from verity.core.crisis import check_and_raise, get_crisis_resources
 from verity.core.exceptions import (
     ConsentExpiredError,
@@ -93,6 +95,21 @@ _CHARS_PER_TOKEN = 4
 
 # Checkpoint timeout in seconds — veto fires after this
 _CHECKPOINT_TIMEOUT_SECONDS = 300
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _score_to_trust_source(score: float) -> str:
+    """Map a continuous trust_score to the nearest TrustSource tier."""
+    tiers = [
+        (0.95, TrustSource.HUMAN_VERIFIED),
+        (0.90, TrustSource.INSTITUTIONAL),
+        (0.75, TrustSource.ALGORITHMIC_HIGH),
+        (0.50, TrustSource.ALGORITHMIC_LOW),
+        (0.40, TrustSource.INFERRED),
+        (0.20, TrustSource.UNKNOWN),
+    ]
+    return min(tiers, key=lambda t: abs(t[0] - score))[1]
 
 
 # ── SOMA: agent_prompt assembly ───────────────────────────────────────────────
@@ -207,23 +224,23 @@ class Session:
 
     async def ingest(
         self,
-        text: str,
+        data: str | dict | ConnectorRecord,
         source: str = "manual_entry",
         classification: DataClassification = DataClassification.INTERNAL,
         trust_source: str = TrustSource.UNKNOWN,
         domain_properties: dict[str, Any] | None = None,
     ) -> RelateResult:
         """
-        RELATE — ingest text or structured data into the knowledge graph.
+        RELATE — ingest text, a dict, or a ConnectorRecord into the knowledge graph.
 
-        Crisis barrier runs first, unconditionally. If crisis is detected,
-        CrisisBarrierError is raised and nothing is written to the graph.
+        Crisis barrier runs first, unconditionally on all paths. If crisis is
+        detected, CrisisBarrierError is raised and nothing is written to the graph.
 
         Args:
-            text:               Raw text or stringified data to ingest
-            source:             Where this data came from
+            data:               str text, dict (serialized to JSON), or ConnectorRecord
+            source:             Where this data came from (overridden by record.source_id)
             classification:     Sensitivity classification (default: INTERNAL)
-            trust_source:       Origin of this data (affects trust_score)
+            trust_source:       Origin of this data (overridden for dict/ConnectorRecord)
             domain_properties:  Module-specific key-value pairs
 
         Returns:
@@ -234,16 +251,68 @@ class Session:
             SessionClosedError  — session is not open
         """
         self._require_open()
+
+        if isinstance(data, ConnectorRecord):
+            if isinstance(data.content, bytes):
+                text = data.content.decode("utf-8", errors="replace")
+            elif isinstance(data.content, dict):
+                text = json.dumps(data.content)
+            else:
+                text = str(data.content)
+            effective_source = data.source_id
+            effective_classification = DataClassification(data.classification)
+            effective_trust_source = _score_to_trust_source(data.trust_score)
+            effective_domain_props = {**data.metadata, **(domain_properties or {})}
+        elif isinstance(data, dict):
+            text = json.dumps(data)
+            effective_source = source
+            effective_classification = classification
+            effective_trust_source = TrustSource.ALGORITHMIC_LOW
+            effective_domain_props = domain_properties or {}
+        else:
+            text = data
+            effective_source = source
+            effective_classification = classification
+            effective_trust_source = trust_source
+            effective_domain_props = domain_properties or {}
+
         result = await self._engine.relate(
             text=text,
-            source=source,
-            classification=classification,
-            trust_source=trust_source,
-            domain_properties=domain_properties or {},
+            source=effective_source,
+            classification=effective_classification,
+            trust_source=effective_trust_source,
+            domain_properties=effective_domain_props,
             session_id=self.session_id,
             consent_ref=self._state.consent_ref,
         )
         self._state.facts_ingested += 1
+        return result
+
+    async def ingest_from(
+        self,
+        connector: Connector,
+        resource: str,
+        query: dict | None = None,
+        **opts: Any,
+    ) -> RelateResult:
+        """
+        Ingest all records from a connector resource.
+
+        Delegates to Engine.ingest_from() with session context.
+        Returns aggregate RelateResult across all records.
+        Crisis barrier runs on every individual record — crisis on one
+        record is recorded and processing continues to the next.
+        """
+        self._require_open()
+        result = await self._engine.ingest_from(
+            connector=connector,
+            resource=resource,
+            session_id=self.session_id,
+            consent_ref=self._state.consent_ref,
+            query=query,
+            **opts,
+        )
+        self._state.facts_ingested += len(result.facts_added) + len(result.facts_updated)
         return result
 
     # ── NAVIGATE ──────────────────────────────────────────────────────────────
@@ -668,6 +737,94 @@ class Engine:
             audit_id=audit_id,
             session_id=session_id,
             concepts=tuple(f.entity_id for f in facts_added),
+            validation_passed=True,
+        )
+
+    async def ingest_from(
+        self,
+        connector: Connector,
+        resource: str,
+        session_id: SessionId | None,
+        consent_ref: ConsentRef,
+        query: dict[str, Any] | None = None,
+        **opts: Any,
+    ) -> RelateResult:
+        """
+        RELATE (batch) — ingest all records from a connector resource.
+
+        Loops over connector.read(), calls relate() for each record.
+        Crisis barrier runs on every individual record. When crisis is
+        detected the audit event is recorded and processing continues
+        to the next record — the batch is never halted by a single record.
+
+        Returns a single RelateResult with aggregate counts across all records.
+        """
+        self._require_started()
+
+        all_facts_added: list[TypedFact] = []
+        all_edges_added: list[WeightedEdge] = []
+        all_facts_updated: list[TypedFact] = []
+        all_edges_updated: list[WeightedEdge] = []
+        all_concepts: list[str] = []
+        crisis_detected = False
+
+        from verity.core.exceptions import CrisisBarrierError  # local to avoid circular
+
+        async for record in connector.read(resource, query, **opts):
+            if isinstance(record.content, bytes):
+                text = record.content.decode("utf-8", errors="replace")
+            elif isinstance(record.content, dict):
+                text = json.dumps(record.content)
+            else:
+                text = str(record.content)
+
+            try:
+                result = await self.relate(
+                    text=text,
+                    source=record.source_id,
+                    classification=DataClassification(record.classification),
+                    trust_source=_score_to_trust_source(record.trust_score),
+                    domain_properties=dict(record.metadata),
+                    session_id=session_id,
+                    consent_ref=consent_ref,
+                )
+                all_facts_added.extend(result.facts_added)
+                all_edges_added.extend(result.edges_added)
+                all_facts_updated.extend(result.facts_updated)
+                all_edges_updated.extend(result.edges_updated)
+                all_concepts.extend(result.concepts)
+            except CrisisBarrierError:
+                # Crisis audit event already recorded by relate() — continue batch
+                crisis_detected = True
+
+        # Record aggregate audit event for the batch
+        aggregate_audit_id = await self._store.append_audit(AuditEvent(
+            sequence=0,
+            event_type=AuditEventType.INGEST,
+            timestamp=datetime.now(UTC),
+            actor="engine.ingest_from",
+            session_id=session_id,
+            consent_ref=consent_ref,
+            payload={
+                "facts_added":     len(all_facts_added),
+                "edges_added":     len(all_edges_added),
+                "crisis_detected": crisis_detected,
+                "resource":        resource,
+            },
+            content_hash="",
+            previous_hash=None,
+            chain_valid=True,
+        ))
+
+        return RelateResult(
+            facts_added=tuple(all_facts_added),
+            edges_added=tuple(all_edges_added),
+            facts_updated=tuple(all_facts_updated),
+            edges_updated=tuple(all_edges_updated),
+            crisis_detected=crisis_detected,
+            audit_id=aggregate_audit_id,
+            session_id=session_id,
+            concepts=tuple(all_concepts),
             validation_passed=True,
         )
 
