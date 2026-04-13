@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
+from enum import StrEnum, nonmember
 from typing import Any
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
@@ -120,7 +120,7 @@ class DataClassification(StrEnum):
         return a if order.index(a) >= order.index(b) else b
 
 
-class Completeness(str):
+class Completeness(StrEnum):
     """
     How complete the assembled ContextBundle is relative to what exists
     in the graph for this query and purpose. Inherits str for serialization.
@@ -134,7 +134,7 @@ class Completeness(str):
     SATURATED  = "saturated"  # All available relevant facts included.
 
 
-class CheckpointDecision(str):
+class CheckpointDecision(StrEnum):
     """
     The outcome of a GOVERN checkpoint. Inherits str for serialization.
 
@@ -148,7 +148,7 @@ class CheckpointDecision(str):
     DEFERRED  = "deferred"   # Human needs more time. Action blocked until resolved.
 
 
-class TrustSource(str):
+class TrustSource(StrEnum):
     """
     Origin of a fact. Used to calculate initial trust_score at ingestion.
     Domain modules may define granular sources that map to these tiers.
@@ -161,17 +161,17 @@ class TrustSource(str):
     INFERRED         = "inferred"          # Derived by the graph engine.   → 0.40
     UNKNOWN          = "unknown"           # Source not established.        → 0.20
 
-    SCORES: dict[str, float] = {
+    SCORES = nonmember({
         "human_verified":   0.95,
         "institutional":    0.90,
         "algorithmic_high": 0.75,
         "algorithmic_low":  0.50,
         "inferred":         0.40,
         "unknown":          0.20,
-    }
+    })
 
 
-class AuditEventType(str):
+class AuditEventType(StrEnum):
     """
     The type of event appended to the Merkle-chained audit trail.
     Every value here produces an immutable record. Inherits str for RDF.

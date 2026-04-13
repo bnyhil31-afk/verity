@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # BFS traversal switches to Personalized PageRank above this node count
-_PPR_THRESHOLD = 200
+_PPR_THRESHOLD = 50_000
 
 # Token estimation: conservative 4 chars per token
 _CHARS_PER_TOKEN = 4
