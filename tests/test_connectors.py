@@ -11,7 +11,6 @@ so no @pytest.mark.asyncio decorator is needed.
 from __future__ import annotations
 
 import json
-from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +19,6 @@ import pytest
 from verity.core.connectors import Connector, ConnectorCapability, ConnectorRecord
 from verity.core.connectors.filesystem import FilesystemConnector
 from verity.core.connectors.registry import ConnectorRegistry
-
 
 # ── TestConnectorRecord ───────────────────────────────────────────────────────
 

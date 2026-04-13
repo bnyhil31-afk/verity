@@ -21,7 +21,7 @@ import glob as _glob
 import json
 import logging
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +132,7 @@ class FilesystemConnector(BaseConnector):
             "path": str(path),
             "size": stat.st_size,
             "modified_at": datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
+                stat.st_mtime, tz=UTC
             ).isoformat(),
             "format": suffix.lstrip("."),
         }
@@ -289,7 +289,7 @@ class FilesystemConnector(BaseConnector):
             "exists": True,
             "size": stat.st_size,
             "modified_at": datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
+                stat.st_mtime, tz=UTC
             ).isoformat(),
             "format": candidate.suffix.lower().lstrip("."),
             "supported": candidate.suffix.lower() in _SUPPORTED_FORMATS,

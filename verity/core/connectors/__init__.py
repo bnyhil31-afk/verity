@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -57,7 +57,7 @@ class ConnectorRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     classification: str = "internal"  # DataClassification value
     timestamp: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(UTC)
     )
     trust_score: float = 0.5
 

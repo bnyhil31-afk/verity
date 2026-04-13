@@ -64,7 +64,7 @@ class BaseConnector:
 
     # ── Async context manager ─────────────────────────────────────────────────
 
-    async def __aenter__(self) -> "BaseConnector":
+    async def __aenter__(self) -> BaseConnector:
         await self._connect()
         self._connected = True
         self._logger.debug("Connector '%s' connected.", self.source_id)
