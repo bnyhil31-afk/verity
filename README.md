@@ -8,34 +8,35 @@ Embedded semantic reasoning for regulated industries.
 Verity is an open-source Python library that assembles verified, uncertainty-annotated,
 consent-gated context for large language models — with a complete, immutable audit trail.
 
-It is designed for teams building AI agents in healthcare, finance, legal, and other
-regulated industries where "just stuff the data into the prompt" is not an option.
+It is designed for developers building AI agents where "just stuff the data into the
+prompt" is not an option.
 
 ## The 10-line demo
 
 ```python
 import asyncio
 from verity import Engine
+from verity.core.connectors.filesystem import FilesystemConnector
 
 async def main():
-    engine = await Engine.start(modules=["fhir_r4"])
+    engine = await Engine.start(profile="personal")
 
-    async with engine.session(consent_ref="consent:abc123") as s:
-        await s.ingest(patient_fhir_bundle, source="fhir_r4")
+    connector = FilesystemConnector(source_id="my_notes")
 
+    async with engine.session(consent_ref="consent:me") as s:
+        await s.ingest_from(connector, "examples/sample_notes")
         context = await s.context(
-            query="recent encounters and active diagnoses",
-            purpose="clinical_decision_support",
+            query="what have I been working on",
+            purpose="personal_review",
         )
-
-        print(context.agent_prompt)           # ready for LLM injection
+        print(context.agent_prompt)
         print(f"Uncertainty: {context.uncertainty:.0%}")
-        print(f"Audit ID: {context.audit_id}")  # immutable, Merkle-chained
+        print(f"Audit ID:    {context.audit_id}")
 
 asyncio.run(main())
 ```
 
-FHIR R4-validated. PHI-classified. Consent-gated. Merkle-chained. Uncertainty-annotated.
+Source-agnostic. Uncertainty-annotated. Consent-gated. Merkle-chained.
 No configuration. No Java. No external database.
 Runs identically on a Raspberry Pi 4 and in a Kubernetes pod.
 
