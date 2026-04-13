@@ -116,8 +116,21 @@ class Connector(Protocol):
         ...
 
 
+# ── Optional: DltConnector (requires dlt extra) ───────────────────────────────
+
+try:
+    from verity.core.connectors.dlt_connector import DltConnector  # noqa: F401
+    _DLT_AVAILABLE = True
+except ImportError:
+    _DLT_AVAILABLE = False
+
 __all__ = [
     "ConnectorCapability",
     "ConnectorRecord",
     "Connector",
+    # availability flag — always exported so callers can check before using
+    "_DLT_AVAILABLE",
 ]
+
+if _DLT_AVAILABLE:
+    __all__.append("DltConnector")

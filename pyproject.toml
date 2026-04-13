@@ -53,6 +53,18 @@ fast = [
     "oxrdflib>=0.5.0",         # oxrdflib rdflib store bridge
 ]
 
+# Connector tier — dlt (data load tool) for 60+ data sources
+connectors = [
+    "dlt>=1.4.0",              # MIT, 60+ verified data sources
+]
+
+# Full tier — all optional features combined
+full = [
+    "pyoxigraph>=0.3.22",
+    "oxrdflib>=0.5.0",
+    "dlt>=1.4.0",
+]
+
 # Team tier — PostgreSQL backend
 team = [
     "asyncpg>=0.29.0",

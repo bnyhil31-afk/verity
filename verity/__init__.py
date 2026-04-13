@@ -95,6 +95,14 @@ from verity.core.types import (
     WeightedEdge,
 )
 
+# ── Optional: DltConnector (requires pip install 'verity[connectors]') ────────
+
+try:
+    from verity.core.connectors.dlt_connector import DltConnector  # noqa: F401
+    _DLT_AVAILABLE = True
+except ImportError:
+    _DLT_AVAILABLE = False
+
 __version__ = "0.1.0"
 __license__ = "Apache-2.0"
 __author__  = "Verity Contributors"
@@ -167,4 +175,9 @@ __all__ = [
     "SessionClosedError",
     # Version
     "__version__",
+    # dlt connector availability flag — always exported
+    "_DLT_AVAILABLE",
 ]
+
+if _DLT_AVAILABLE:
+    __all__.append("DltConnector")
