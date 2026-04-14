@@ -548,6 +548,80 @@ class DualSpeedStore:
         self._conn.commit()
         return entry
 
+    def compute_embedding(self, content: str) -> list[float] | None:
+        """
+        Compute and return an embedding for content using the store's
+        configured embedding model.
+
+        Returns None if embedding_model="none" or no model is available.
+        Does NOT store anything — pure computation only.
+        """
+        arr = self._compute_embedding(content)
+        if arr is None:
+            return None
+        return arr.tolist()
+
+    def close(self) -> None:
+        """
+        Close the SQLite connection cleanly.
+        Safe to call multiple times (no-op if already closed).
+        """
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def update_entry(self, entry: MemoryEntry) -> None:
+        """
+        Overwrite ALL persisted fields for an existing memory_id in
+        whichever table (fast or slow) contains it.
+
+        Fields updated: content, confidence_tier, importance, strength,
+        last_accessed, access_count, source_count, alpha, beta,
+        metadata, embedding.
+
+        Raises KeyError if memory_id not found in either table.
+        """
+        result = self._find_table_and_row(entry.memory_id)
+        if result is None:
+            raise KeyError(f"Memory not found: {entry.memory_id!r}")
+        table, _ = result
+
+        emb_blob: bytes | None = None
+        if entry.embedding is not None and _HAS_NUMPY:
+            emb_blob = _embed_to_blob(_np.array(entry.embedding, dtype=_np.float32))
+
+        self._conn.execute(
+            f"""UPDATE {table}
+                SET content          = ?,
+                    confidence_tier  = ?,
+                    importance       = ?,
+                    strength         = ?,
+                    last_accessed    = ?,
+                    access_count     = ?,
+                    source_count     = ?,
+                    alpha            = ?,
+                    beta             = ?,
+                    metadata         = ?,
+                    embedding        = ?
+                WHERE memory_id = ?""",
+            (
+                entry.content,
+                str(entry.confidence_tier),
+                entry.importance,
+                entry.strength,
+                _to_iso(entry.last_accessed),
+                entry.access_count,
+                entry.source_count,
+                entry.alpha,
+                entry.beta,
+                json.dumps(entry.metadata),
+                emb_blob,
+                entry.memory_id,
+            ),
+        )
+        self._conn.commit()
+
     def stats(self) -> dict[str, Any]:
         """
         Return store statistics.
