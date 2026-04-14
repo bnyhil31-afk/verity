@@ -45,3 +45,51 @@ pytest benchmarks/ -v --cov=verity
   for deeper exploration in nightly or pre-release runs
 - Requires numpy (installed via `.[cognitive]`); no GPU, no network
 - Hypothesis database is stored in `.hypothesis/` — commit to reproduce failures
+
+## Performance Benchmarks
+
+Performance tests are excluded from regular CI. Run explicitly:
+
+    pytest benchmarks/test_performance.py -v -s
+
+### Targets (zero-dependency baseline, embedding_model='none')
+
+| Operation        | Scale | Target      |
+|-----------------|-------|-------------|
+| Memory.add()    | 100   | mean < 50ms |
+| Memory.add()    | 1K    | mean < 50ms |
+| Memory.search() | 100   | mean < 100ms |
+| Memory.search() | 1K    | mean < 100ms |
+| consolidate()   | 100   | mean < 500ms |
+| consolidate()   | 1K    | mean < 2s |
+| File size       | 100   | < 200KB |
+| File size       | 1K    | < 1MB |
+
+### Comparison context
+
+Published baselines use embedding models:
+- Graphiti: P95 ~300ms (with embedding model)
+- Mem0: p50 0.148s, p95 1.44s (with embedding model)
+
+To compare fairly, run Verity with `embedding_model='sentence-transformers'`.
+
+### Notes for future LOCOMO / LongMemEval benchmarks
+
+Verity's GlobalWorkspace applies position reordering before returning results.
+With K=5, output order is [rank1, rank3, rank5, rank4, rank2]. This optimises
+for LLM context placement but creates an NDCG@5 ceiling of ~0.947 (not 1.0)
+because rank-2 is placed at output position 5.
+
+When running community benchmarks: compute NDCG on the PRE-reorder ranked
+list, not the position-reordered output. Otherwise Verity's scores are
+unfairly penalised relative to systems without position reordering.
+
+### Saving a regression baseline
+
+    pytest benchmarks/test_performance.py --benchmark-save=baseline
+
+Future regression detection:
+
+    pytest benchmarks/test_performance.py \
+      --benchmark-compare=baseline \
+      --benchmark-compare-fail=mean:25%
