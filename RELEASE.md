@@ -53,6 +53,7 @@ Go to: https://github.com/bnyhil31-afk/verity/releases/new
 ## Announce
 
 Update README.md badge if you add a PyPI version badge:
+
     [![PyPI version](https://badge.fury.io/py/verity.svg)](https://badge.fury.io/py/verity)
 
 ---
