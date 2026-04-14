@@ -158,3 +158,45 @@ Use the imperative mood ("add", not "added").
 Open a GitHub Discussion for questions about architecture or direction.
 Open an issue for bugs or concrete feature requests.
 See `SECURITY.md` for reporting vulnerabilities.
+
+---
+
+## The cognitive layer
+
+Verity has two layers:
+
+**Engine layer** (`verity/core/`) — the original traversal engine.
+RELATE/NAVIGATE/GOVERN/REMEMBER. Graph-backed. Full audit trail.
+Four profiles. Connector protocol.
+
+**Cognitive layer** (`verity/cognitive/`) — neuroscience-inspired memory.
+Built on top of the engine layer. Exposed via `verity/memory.py`.
+
+The cognitive layer files and their responsibilities:
+
+| File | Responsibility |
+|------|---------------|
+| `types.py` | MemoryEntry, ConfidenceTier, SleepCycleResult, TemporalModelType |
+| `store.py` | DualSpeedStore — dual SQLite tables, optional embeddings |
+| `scoring.py` | ImportanceScorer — prediction error × recency × reference |
+| `reconsolidation.py` | ReconsolidationEngine — 4-tier Bayesian stability |
+| `consolidation.py` | ConsolidationCycle — decay/prune/abstract sleep cycle |
+| `temporal.py` | TemporalWeighter — auto-graduating temporal models |
+| `workspace.py` | GlobalWorkspace — K=5 competitive selection |
+
+### Rules for cognitive layer contributions
+
+1. Each file stays focused on its single responsibility
+2. No file in `verity/cognitive/` may import from `verity/core/engine.py`
+   (cognitive layer does not depend on the traversal engine)
+3. All components must work with embedding_model="none" (zero dependencies)
+4. Optional dependencies must be detected at use-time with try/import,
+   not at module load time
+5. Tests for cognitive components live in `tests/test_cognitive/`
+
+### Building a connector
+
+See `verity/core/connectors/base.py` for the BaseConnector class.
+Implement `read()`, `write()`, and `describe()` — that's the full
+interface. Register via the `verity.connectors` setuptools entry
+point group.
