@@ -110,6 +110,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "slow: tests that take more than a few seconds",
+    "integration: tests requiring live external services (skipped in CI)",
 ]
 
 [tool.ruff]

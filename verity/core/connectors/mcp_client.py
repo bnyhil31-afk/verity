@@ -76,6 +76,8 @@ class MCPConnector(BaseConnector):
 
     async def _connect(self) -> None:
         """Initialize and enter the FastMCP client context."""
+        # fastmcp >= 2.0 auto-detects transport from URL format:
+        # stdio for file paths, streamable-http for http(s):// URLs.
         self._client = _FastMCPClient(self._server_url)
         await self._client.__aenter__()
         logger.debug("MCPConnector: connected to '%s'.", self._server_url)
@@ -223,22 +225,29 @@ class MCPConnector(BaseConnector):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _extract_content(item: Any) -> str | dict | bytes:
-    """Extract usable content from an MCP result item."""
-    if isinstance(item, (str, bytes)):
+def _extract_content(item: Any) -> str:
+    """Extract usable content from an MCP result item, always as str."""
+    if isinstance(item, bytes):
+        return item.decode("utf-8", errors="replace")
+    if isinstance(item, str):
         return item
     if isinstance(item, dict):
-        # MCP content items often carry a 'text' or 'data' field
         if "text" in item:
-            return item["text"]  # type: ignore[return-value]
+            val = item["text"]
+            return val if isinstance(val, str) else str(val)
         if "data" in item:
-            return item["data"]  # type: ignore[return-value]
-        return item
-    # MCP SDK objects (TextContent, etc.) often have .text or .data attributes
+            val = item["data"]
+            if isinstance(val, bytes):
+                return val.decode("utf-8", errors="replace")
+            return val if isinstance(val, str) else str(val)
+        import json
+        return json.dumps(item, ensure_ascii=False, default=str)
     for attr in ("text", "data", "content"):
         value = getattr(item, attr, None)
         if value is not None:
-            return value  # type: ignore[return-value]
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return value if isinstance(value, str) else str(value)
     return str(item)
 
 
