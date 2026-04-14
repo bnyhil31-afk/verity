@@ -97,734 +97,235 @@ tests/
 
 ---
 
-## The New Layer to Build — Cognitive Architecture
+## Cognitive Layer — Complete
 
-This is what does NOT exist yet. Build it in the order listed.
+All eight phases are complete and CI-green on Python 3.11, 3.12, and 3.13.
 
-The cognitive layer lives in `verity/cognitive/` and exposes a simple
-bolt-on API at `verity/memory.py`.
-
-**The Key Design Constraint:** Zero dependencies by default.
-- Tier 0 (stdlib): `sqlite3` + `json` — text storage, no semantic search
-- Tier 1 (+ `numpy`): Model2Vec static embeddings + brute-force cosine
+**Dependency tiers (enforced, do not break):**
+- Tier 0 (stdlib): `sqlite3` + `json` — text storage, keyword search
+- Tier 1 (+ `numpy`): Model2Vec embeddings + brute-force cosine
 - Tier 2 (+ `hnswlib`): Fast approximate search for >10k memories
 - Tier 3 (+ `sentence-transformers`): Higher quality embeddings on CPU
 - Tier 4 (+ LLM client): Cloud-enhanced summarization (opt-in)
 
 Never make Tier 1-4 features hard dependencies. Always detect and degrade.
 
----
+### Phase Status
 
-## Coding Plan — New Phases
+| Phase | File | Status |
+|-------|------|--------|
+| A | `verity/cognitive/types.py` | ✅ Complete |
+| B | `verity/cognitive/store.py` | ✅ Complete |
+| C | `verity/cognitive/scoring.py` | ✅ Complete |
+| D | `verity/cognitive/reconsolidation.py` | ✅ Complete |
+| E | `verity/cognitive/consolidation.py` | ✅ Complete |
+| F | `verity/cognitive/temporal.py` | ✅ Complete |
+| G | `verity/cognitive/workspace.py` | ✅ Complete |
+| H | `verity/memory.py` | ✅ Complete |
 
-Complete each phase fully before starting the next.
-Run `pytest tests/ -v && ruff check verity/ tests/` after every phase.
+### Cognitive Layer File Map
 
----
-
-### Phase A — Cognitive Types
-
-**Goal:** Contracts before code. No logic.
-
-**File:** `verity/cognitive/__init__.py` — empty package init
-
-**File:** `verity/cognitive/types.py`
-
-Define these frozen dataclasses and enums:
-
-```python
-from enum import StrEnum
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
-
-class MemoryTier(StrEnum):
-    FAST   = "fast"   # Episodic buffer — recent, high detail, limited capacity
-    SLOW   = "slow"   # Semantic store — consolidated, abstracted, persistent
-
-class ConfidenceTier(StrEnum):
-    IMMUTABLE  = "immutable"   # conf >= 0.95, sources >= 5 — never modified
-    PROTECTED  = "protected"   # conf >= 0.80, sources >= 3 — modification penalized
-    MODIFIABLE = "modifiable"  # conf >= 0.50, sources >= 1 — standard rules apply
-    LABILE     = "labile"      # conf < 0.50 — freely modifiable, eligible for pruning
-
-class TemporalModelType(StrEnum):
-    EXPONENTIAL = "exponential"  # 0-5 events — population-average parameters
-    RENEWAL     = "renewal"      # 5-20 events — Bayesian Gamma inter-event times
-    HAWKES      = "hawkes"       # 20+ events — Hawkes with empirical Bayes priors
-
-@dataclass
-class MemoryEntry:
-    """A single memory in the dual-speed store."""
-    memory_id: str                  # uuid4
-    content: str                    # The raw text content
-    user_id: str                    # Scope — memories are per-user
-    tier: MemoryTier
-    confidence_tier: ConfidenceTier
-    importance: float               # [0.0, 1.0] — composite score
-    strength: float                 # [0.0, 1.0] — decays over time
-    created_at: datetime
-    last_accessed: datetime
-    access_count: int               # Drives reference_boost
-    source_count: int               # Number of independent sources confirming this
-    alpha: float = 2.0              # Beta-Bernoulli confirmations (Bayesian confidence)
-    beta: float  = 1.0              # Beta-Bernoulli contradictions
-    metadata: dict[str, Any] = field(default_factory=dict)
-    embedding: list[float] | None = None  # None until computed
-
-    @property
-    def bayesian_confidence(self) -> float:
-        """Expected value of Beta(alpha, beta) — calibrated confidence."""
-        return self.alpha / (self.alpha + self.beta)
-
-    @property
-    def confidence_interval_width(self) -> float:
-        """95% credible interval width — narrow = trustworthy."""
-        import math
-        n = self.alpha + self.beta
-        p = self.bayesian_confidence
-        return 2 * 1.96 * math.sqrt(p * (1 - p) / max(n, 1))
-
-@dataclass
-class ImportanceWeights:
-    """Tunable weights for composite importance scoring."""
-    surprise_weight: float    = 0.35  # Prediction error / embedding distance
-    recency_weight: float     = 0.30  # How recent the memory is
-    reference_weight: float   = 0.20  # How often recalled
-    relevance_weight: float   = 0.15  # Query-time relevance
-
-@dataclass
-class SleepCycleResult:
-    """Results from one full consolidation cycle."""
-    memories_decayed: int
-    memories_pruned: int
-    memories_merged: int
-    abstractions_created: int
-    duration_seconds: float
-    cycle_timestamp: datetime
-
-@dataclass
-class RetrievalResult:
-    """A single result from semantic search."""
-    memory: MemoryEntry
-    score: float                    # Similarity + importance composite
-    position: int                   # 1-indexed rank
+```
+verity/
+├── memory.py                    Public bolt-on API — 7 methods, zero config
+│                                add(), search(), get(), update(), delete(),
+│                                consolidate(), export()
+│                                Async variants: aadd(), asearch(), etc.
+│                                Context manager: with Memory() as m:
+└── cognitive/
+    ├── types.py                 MemoryEntry, ConfidenceTier, SleepCycleResult,
+    │                            TemporalModelType, MemoryTier, RetrievalResult
+    ├── store.py                 DualSpeedStore — SQLite dual-table CLS
+    │                            add(tier=, _embedding=), search(), get(),
+    │                            delete(), update_entry(), compute_embedding(),
+    │                            all_fast(), all_slow(), close(), stats()
+    ├── scoring.py               ImportanceScorer — prediction error proxy
+    │                            update_centroid(), recency_decay()
+    ├── reconsolidation.py       ReconsolidationEngine — 4-tier Bayesian
+    │                            update(), promote_tier(), should_reconsolidate()
+    ├── consolidation.py         ConsolidationCycle — decay/prune/abstract
+    │                            run() → SleepCycleResult
+    ├── temporal.py              TemporalWeighter — auto-graduating temporal
+    │                            weight(), model_for() — n<5/5-19/≥20 tiers
+    └── workspace.py             GlobalWorkspace — K=5 competitive selection
+                                 select() → position-reordered results
 ```
 
-**Tests:** `tests/test_cognitive/test_types.py`
-- All dataclasses construct correctly
-- `bayesian_confidence` returns alpha/(alpha+beta)
-- `confidence_interval_width` narrows as alpha+beta grows
-- ConfidenceTier enum serializes correctly as string
+### Critical Implementation Details — Do Not Break
 
-Commit: `cognitive: add types — MemoryEntry, ConfidenceTier, SleepCycleResult`
+Discovered during implementation and benchmarking. Change only with evidence:
 
----
+**promote_tier() uses PE=0.65** — patched from 0.2. At 0.65, gate fires for
+LABILE (0.996), MODIFIABLE (0.971), PROTECTED (0.623), blocked only by
+IMMUTABLE (threshold=∞). Correct neuroscience: access reinforces all tiers
+except the most stable.
 
-### Phase B — Dual-Speed Store
+**scorer=None only removes the recency fallback** — in GlobalWorkspace,
+`salience = memory.importance` is always used regardless of scorer=.
+scorer controls only: temporal.weight() → scorer.recency_decay() → 1.0.
 
-**Goal:** The CLS dual-memory architecture as SQLite + numpy. Zero-config.
+**Position reordering creates NDCG@5 ceiling of 0.947** — output order
+[rank1, rank3, rank5, rank4, rank2] places rank-2 at position 5.
+Optimises LLM context (avoids lost-in-middle) but penalises traditional
+NDCG metrics. For LOCOMO/LongMemEval: compute NDCG on the pre-reorder
+ranked list, not the position-reordered output.
 
-**File:** `verity/cognitive/store.py`
+**gate(0.0, 0.3) ≈ 0.047** — not < 0.01. The gate is a smooth sigmoid,
+not a hard threshold. Relevant for MODIFIABLE-tier test assertions.
 
-```python
-class DualSpeedStore:
-    """
-    Complementary Learning Systems theory as a Python class.
+**IMMUTABLE requires alpha+beta > 236** for CI width < 0.05 at conf=0.96.
+Use alpha=250, beta=10 in tests requiring IMMUTABLE tier.
 
-    Fast buffer (hippocampal): SQLite table, capacity-limited ring buffer.
-    Slow store (neocortical): SQLite table, promoted consolidated memories.
-
-    Both tables share one .db file. Default: ~/.verity/memory.db
-    In-memory option for testing: path=":memory:"
-
-    Embedding is optional. If numpy is available, embeddings are computed
-    and stored as BLOB. If not, semantic search falls back to BM25-style
-    keyword matching.
-    """
-
-    def __init__(
-        self,
-        path: str = "~/.verity/memory.db",
-        fast_capacity: int = 500,         # ring buffer size
-        embedding_model: str = "auto",    # "none"|"model2vec"|"sentence-transformers"
-        user_id: str = "default",
-    ): ...
-
-    def add(self, content: str, metadata: dict = {}) -> MemoryEntry: ...
-    def search(self, query: str, k: int = 5) -> list[RetrievalResult]: ...
-    def get(self, memory_id: str) -> MemoryEntry | None: ...
-    def update(self, memory_id: str, new_content: str) -> MemoryEntry: ...
-    def delete(self, memory_id: str) -> bool: ...
-    def all_fast(self) -> list[MemoryEntry]: ...    # for consolidation
-    def all_slow(self) -> list[MemoryEntry]: ...    # for consolidation
-    def promote(self, memory_id: str) -> MemoryEntry: ...  # fast → slow
-    def stats(self) -> dict: ...
-```
-
-Implementation notes:
-- SQLite schema: two tables (`fast_memories`, `slow_memories`) with identical columns
-- Embeddings stored as BLOB (numpy array serialized via `numpy.frombuffer`)
-- When fast_capacity is reached: evict by lowest importance score (not FIFO)
-- Embedding model detection order: model2vec → sentence-transformers → None
-- model2vec: `pip install model2vec` — 500x faster than MiniLM, numpy-only, no GPU
-- Fallback search (no embeddings): simple trigram overlap on content field
-
-**Tests:** `tests/test_cognitive/test_store.py`
-- Store init creates tables
-- add() returns MemoryEntry with memory_id
-- search() returns <= k results
-- get() returns None for unknown id
-- update() changes content, increments access_count
-- delete() removes memory, returns True
-- Capacity limit: adding beyond fast_capacity evicts lowest-importance entry
-- promote() moves entry from fast to slow table
-- In-memory path (":memory:") works for testing
-- Works with embedding_model="none" (no numpy required)
-
-Commit: `cognitive: add DualSpeedStore — SQLite CLS implementation`
+**DualSpeedStore.add() signature:**
+`add(content, metadata={}, importance=None, tier=MemoryTier.FAST, _embedding=None)`
 
 ---
 
-### Phase C — Importance Scoring
+## Benchmark Suite — Complete
 
-**Goal:** Prediction error as reward proxy. Composite importance = surprise × recency × reference.
+All four sessions are complete and CI-green. benchmarks/ runs in under 2
+minutes. test_performance.py is excluded from regular CI (runs on push to
+main only, results uploaded as artifact).
 
-**File:** `verity/cognitive/scoring.py`
+### Benchmark Session Status
+
+| Session | File | What it proves | Status |
+|---------|------|---------------|--------|
+| 1 | `test_invariants.py` | 6 mathematical guarantees + stateful machine | ✅ |
+| 2 | `test_claims.py` | 3 novel claims validated end-to-end | ✅ |
+| 3 | `test_retrieval.py` | Cognitive layer improves over raw search (p<0.01) | ✅ |
+| 4 | `test_performance.py` | Latency + footprint baselines established | ✅ |
+
+### Key Benchmark Findings
+
+These were discovered during benchmarking and are now documented:
+
+1. **promote_tier() bug found and fixed** — was using PE=0.2, silently became
+   no-op above LABILE. Fixed to PE=0.65 in `reconsolidation.py`.
+
+2. **NDCG ceiling** — position reordering limits NDCG@5 to 0.947 (not 1.0).
+   See the `benchmarks/README.md` for community benchmark guidance.
+
+3. **Ablation finding** — scorer=None does not remove importance weighting
+   from GlobalWorkspace. The original 8-condition ablation was redesigned to
+   a cleaner 4-condition comparison as a result.
+
+4. **Session 3 adversarial dataset corrections** — Claude Code made three
+   smart fixes during Session 3: common last_accessed timestamp, importance
+   inversion (decoys > correct) to make temporal signal load-bearing, and
+   NDCG assertion corrected to ≥0.93 (not ==1.0) due to position reordering.
+
+### Performance Baselines (embedding_model='none')
+
+| Operation | Scale | Observed | Target |
+|-----------|-------|----------|--------|
+| add() | 100 entries | ~1-5ms | < 50ms |
+| add() | 1K entries | ~1-10ms | < 50ms |
+| search() | 100 entries | ~1-5ms | < 100ms |
+| search() | 1K entries | ~5-20ms | < 100ms |
+| consolidate() | 100 entries | < 100ms | < 500ms |
+| consolidate() | 1K entries | < 500ms | < 2s |
+
+Note: Graphiti P95 ~300ms and Mem0 p95 ~1.44s use embedding models.
+These baselines use keyword search only. Targets are zero-dependency tier.
+
+---
+
+## MCP Connector — Next Phase
+
+Prove that `MCPConnector` (already built in `verity/core/connectors/mcp_client.py`)
+works end-to-end against a live MCP server. This is an integration test, not
+new code — unless bugs are found that require fixes.
+
+### What to verify
+
+1. **MCPConnector can connect to a real MCP server** (Google Calendar or Gmail)
+2. **read() returns ConnectorRecord objects** with valid content + metadata
+3. **ingest_from(connector, resource) flows through the Engine correctly**
+4. **The full RELATE→NAVIGATE→GOVERN→REMEMBER loop completes** with MCP data
+
+### Implementation plan
+
+Read `verity/core/connectors/mcp_client.py` first. Then:
+
+**File:** `tests/test_mcp_integration.py`
+
+Mark all tests with `@pytest.mark.integration` — these require live MCP servers
+and are skipped in regular CI. Run manually with `pytest -m integration`.
 
 ```python
-class ImportanceScorer:
-    """
-    Computes composite importance scores using prediction error as
-    a dopamine/norepinephrine proxy.
+# Skip if MCP server not available
+pytest.importorskip("mcp")
 
-    Formula: importance = w_s × surprise + w_r × recency + w_ref × reference
-    Where surprise = 1 - cosine_similarity(embedding, running_centroid)
+@pytest.mark.integration
+class TestMCPConnectorLive:
 
-    The running centroid (exponential moving average of all embeddings)
-    represents the system's "current expectation." High deviation from
-    expectation = high surprise = high importance.
-
-    For memories without embeddings: use normalized recency + reference count.
-    """
-
-    def __init__(self, weights: ImportanceWeights = ImportanceWeights()): ...
-
-    def score(
-        self,
-        entry: MemoryEntry,
-        query_embedding: list[float] | None = None,
-    ) -> float:
-        """Compute composite importance score [0.0, 1.0]."""
+    def test_connect_and_describe(self):
+        # Connect to a local or mock MCP server
+        # Verify describe() returns valid ConnectorInfo
         ...
 
-    def surprise(self, embedding: list[float]) -> float:
-        """1 - cosine_similarity(embedding, running_centroid)."""
+    def test_read_returns_records(self):
+        # Verify read() returns list[ConnectorRecord]
+        # Each record has content (str) and metadata (dict)
         ...
 
-    def recency_decay(self, last_accessed: datetime) -> float:
-        """Exponential decay: 0.995^hours_since_access"""
-        ...
-
-    def reference_boost(self, access_count: int) -> float:
-        """1 + 0.1 × access_count (capped at 2.0)"""
-        ...
-
-    def update_centroid(self, embedding: list[float]) -> None:
-        """Exponential moving average update: μ = 0.99μ + 0.01×embedding"""
-        ...
-
-    def record_signal(
-        self,
-        memory_id: str,
-        signal_type: str,  # "recall" | "correction" | "dwell" | "reference"
-        weight: float = 1.0,
-    ) -> None:
-        """Record implicit feedback signal. Stored in-memory, used to adjust scores."""
+    def test_ingest_from_mcp(self):
+        # Full Engine loop with MCP data
+        # Verify context is assembled correctly
         ...
 ```
 
-**Tests:** `tests/test_cognitive/test_scoring.py`
-- surprise() returns 1.0 for completely orthogonal embedding
-- surprise() returns ~0.0 for identical embedding
-- recency_decay() decreases as hours increase
-- reference_boost() increases with access_count, caps at 2.0
-- score() returns value in [0.0, 1.0]
-- update_centroid() shifts centroid toward new embedding
+**If MCPConnector needs fixes:** fix them in `mcp_client.py`, add tests
+to `tests/test_connectors.py` (which already exists and tests the Protocol).
 
-Commit: `cognitive: add ImportanceScorer — prediction error as reward proxy`
+**If MCPConnector works as-is:** document the working configuration in
+`examples/04_mcp_google_calendar.py` following the pattern of examples/02_rest_api.py.
 
----
+### Commit message
 
-### Phase D — Reconsolidation Engine
-
-**Goal:** The unsolved problem #1. Stable memory updating that cannot drift.
-
-**File:** `verity/cognitive/reconsolidation.py`
-
-This is the most novel component. Read the design carefully.
-
-```python
-class ReconsolidationEngine:
-    """
-    Implements memory reconsolidation with biological boundary conditions.
-
-    The key insight: retrieving a memory only triggers modification if
-    prediction error exceeds a threshold. Strong, old, multiply-confirmed
-    memories require much higher prediction error to destabilize.
-
-    Four protection tiers (maps to MemoryEntry.confidence_tier):
-    - IMMUTABLE:  confidence >= 0.95, sources >= 5 → never modified
-    - PROTECTED:  confidence >= 0.80, sources >= 3 → max_delta = 0.1
-    - MODIFIABLE: confidence >= 0.50, sources >= 1 → standard rules
-    - LABILE:     confidence < 0.50 → freely modifiable
-
-    Modification gate: sigmoid(k × (prediction_error - threshold))
-    where k=10 (steep), threshold varies by tier.
-    """
-
-    def should_reconsolidate(
-        self,
-        entry: MemoryEntry,
-        prediction_error: float,  # [0.0, 1.0] — embedding distance from query
-    ) -> bool:
-        """
-        Returns True only if prediction_error exceeds the tier threshold.
-        IMMUTABLE memories always return False.
-        """
-        ...
-
-    def update(
-        self,
-        entry: MemoryEntry,
-        new_content: str,
-        prediction_error: float,
-        source_confirmed: bool = False,  # New independent source?
-    ) -> MemoryEntry:
-        """
-        Conditionally update a memory based on reconsolidation gate.
-        If gate is closed: return entry unchanged.
-        If gate is open: update content, adjust Bayesian confidence,
-        update confidence_tier based on new alpha/beta.
-
-        Bayesian update rules:
-        - New content confirms existing: alpha += 1
-        - New content contradicts existing: beta += 1
-        - New independent source: source_count += 1
-
-        Tier promotion/demotion is automatic from alpha/beta values.
-        """
-        ...
-
-    def tier_thresholds(self) -> dict[ConfidenceTier, float]:
-        """
-        Prediction error required to trigger reconsolidation per tier.
-        LABILE: 0.1, MODIFIABLE: 0.3, PROTECTED: 0.6, IMMUTABLE: inf
-        """
-        ...
-
-    def gate(self, prediction_error: float, threshold: float) -> float:
-        """
-        Sigmoid gate: σ(k × (PE - threshold))
-        Returns value in [0, 1] — probability of reconsolidation.
-        """
-        import math
-        k = 10.0
-        return 1 / (1 + math.exp(-k * (prediction_error - threshold)))
-```
-
-**Tests:** `tests/test_cognitive/test_reconsolidation.py`
-- IMMUTABLE entry never reconsolidates regardless of prediction_error
-- LABILE entry reconsolidates at low prediction_error (0.15)
-- MODIFIABLE entry requires higher prediction_error (0.35)
-- Bayesian update: confirming evidence increases alpha
-- Bayesian update: contradicting evidence increases beta
-- Tier promotion: LABILE → MODIFIABLE when confidence crosses 0.50
-- Tier demotion: PROTECTED → MODIFIABLE when contradictions pile up
-- gate(0.0, 0.3) ≈ 0.05 (very unlikely)
-- gate(0.9, 0.3) ≈ 0.99 (very likely)
-
-Commit: `cognitive: add ReconsolidationEngine — 4-tier stable belief revision`
+`feat: verify MCPConnector end-to-end with live MCP server`
 
 ---
 
-### Phase E — Sleep Consolidation
+## After MCP — PyPI Release
 
-**Goal:** The unsolved problem #2. Offline processing between sessions.
+pyproject.toml is structurally ready. Before publishing:
 
-**File:** `verity/cognitive/consolidation.py`
+1. **Verify metadata** — description, keywords, classifiers, project URLs
+2. **Add CHANGELOG.md** — document v0.1.0 release
+3. **Build and verify** — `python -m build`, inspect the wheel contents
+4. **TestPyPI first** — `twine upload --repository testpypi dist/*`
+5. **Install from TestPyPI** — verify `pip install --index-url https://test.pypi.org/simple/ verity`
+6. **PyPI** — `twine upload dist/*`
 
-```python
-class ConsolidationCycle:
-    """
-    Implements sleep-like memory consolidation:
-    Phase 1 (Decay): Reduce all memory strengths globally.
-    Phase 2 (Prune): Remove memories below strength threshold.
-    Phase 3 (Abstract): Cluster similar fast-buffer memories,
-                        summarize into slow-store abstractions.
-
-    This is the computational analog of the SO-spindle-ripple cascade.
-
-    No LLM required for Phases 1 and 2.
-    Phase 3 uses centroid-based summarization by default.
-    LLM-powered summarization is opt-in via summarizer= parameter.
-    """
-
-    def __init__(
-        self,
-        store: DualSpeedStore,
-        scorer: ImportanceScorer,
-        decay_factor: float = 0.90,       # Global strength multiplier per cycle
-        prune_threshold: float = 0.05,    # Delete memories below this strength
-        cluster_min_size: int = 3,        # Min cluster size to trigger abstraction
-        similarity_threshold: float = 0.85,  # Cosine similarity to cluster
-        summarizer = None,                # Optional: callable(list[str]) -> str
-    ): ...
-
-    def run(self) -> SleepCycleResult:
-        """
-        Run a full consolidation cycle. Returns summary of what changed.
-        Safe to call at any time — idempotent if called twice in quick succession.
-        """
-        ...
-
-    def decay_pass(self) -> int:
-        """
-        Multiply all memory strengths by decay_factor.
-        Updates importance scores after decay.
-        Returns count of memories decayed.
-        """
-        ...
-
-    def prune_pass(self) -> int:
-        """
-        Delete memories with strength < prune_threshold.
-        IMMUTABLE and PROTECTED memories are exempt from pruning.
-        Returns count of memories pruned.
-        """
-        ...
-
-    def abstract_pass(self) -> int:
-        """
-        Cluster fast-buffer memories by embedding similarity.
-        For clusters >= cluster_min_size:
-        - Create a slow-store abstraction (centroid content or LLM summary)
-        - Promote the highest-importance member to slow store
-        - Delete remaining cluster members from fast buffer
-        Returns count of abstractions created.
-        """
-        ...
-```
-
-**Tests:** `tests/test_cognitive/test_consolidation.py`
-- decay_pass() reduces all strengths by decay_factor
-- prune_pass() removes entries below threshold
-- prune_pass() preserves IMMUTABLE and PROTECTED entries
-- abstract_pass() with cluster of 4 similar memories creates 1 abstraction
-- Full run() returns accurate SleepCycleResult counts
-- Cycle is safe to run on empty store
-- IMMUTABLE memories survive all three passes
-
-Commit: `cognitive: add ConsolidationCycle — sleep phases decay/prune/abstract`
+Tag: `git tag v0.1.0 && git push --tags`
 
 ---
 
-### Phase F — Tiered Temporal Model
-
-**Goal:** The unsolved problem #3. Temporal weighting that auto-graduates.
-
-**File:** `verity/cognitive/temporal.py`
-
-```python
-class TemporalWeighter:
-    """
-    Auto-selects temporal model based on event history density.
-
-    0-5 events:  Exponential decay with population-average parameters.
-                 weight = exp(-β × hours_since_access)
-                 β estimated from global statistics across all memories.
-
-    5-20 events: Bayesian renewal process with Gamma inter-event times.
-                 Uses scipy.stats.gamma if available, else falls back to
-                 exponential with per-memory estimated rate.
-
-    20+ events:  Lightweight Hawkes process with empirical Bayes priors.
-                 Uses tick library if available, else Neural Hawkes
-                 approximation via LSTM (if torch available), else
-                 falls back to Bayesian renewal.
-
-    The model is selected per-memory at retrieval time, not globally.
-    This means sparse memories use exponential, dense memories use Hawkes,
-    within the same system simultaneously.
-    """
-
-    def weight(
-        self,
-        entry: MemoryEntry,
-        access_timestamps: list[datetime],
-        query_time: datetime | None = None,
-    ) -> float:
-        """
-        Returns temporal relevance weight [0.0, 1.0].
-        Automatically selects model based on len(access_timestamps).
-        """
-        ...
-
-    def model_for(self, event_count: int) -> TemporalModelType:
-        """Returns the appropriate model type for given event count."""
-        if event_count < 5:
-            return TemporalModelType.EXPONENTIAL
-        elif event_count < 20:
-            return TemporalModelType.RENEWAL
-        else:
-            return TemporalModelType.HAWKES
-
-    def exponential_weight(
-        self,
-        last_access: datetime,
-        beta: float | None = None,  # None = use global estimate
-    ) -> float: ...
-
-    def renewal_weight(
-        self,
-        timestamps: list[datetime],
-        query_time: datetime,
-    ) -> float: ...
-
-    def hawkes_weight(
-        self,
-        timestamps: list[datetime],
-        query_time: datetime,
-    ) -> float: ...
-```
-
-**Tests:** `tests/test_cognitive/test_temporal.py`
-- model_for(3) returns EXPONENTIAL
-- model_for(10) returns RENEWAL
-- model_for(25) returns HAWKES
-- exponential_weight() decreases as time since access increases
-- weight() returns value in [0.0, 1.0] for all models
-- Works with only stdlib (no scipy, no torch)
-- Gracefully degrades when scipy unavailable
-
-Commit: `cognitive: add TemporalWeighter — auto-graduating temporal models`
-
----
-
-### Phase G — Global Workspace
-
-**Goal:** K=5 competitive selection. Position-optimized output.
-
-**File:** `verity/cognitive/workspace.py`
-
-```python
-class GlobalWorkspace:
-    """
-    Implements Global Workspace Theory for context selection.
-
-    NOT a general retrieval system — a capacity-limited broadcast buffer.
-    Given candidates from search, selects the top-K most relevant using
-    goal-directed scoring. Applies position-aware reordering to mitigate
-    the 'lost in the middle' effect.
-
-    K=5 default (Cowan 2001: 4±1 working memory capacity).
-    Configurable to 3-7.
-
-    Scoring: salience × relevance × recency × top_down_weight
-    Output order: [rank-1, rank-3, rank-5, rank-4, rank-2]
-    (best and second-best at boundaries, rest in middle)
-    """
-
-    def __init__(
-        self,
-        capacity: int = 5,        # 3-7 recommended
-        scorer: ImportanceScorer | None = None,
-        temporal: TemporalWeighter | None = None,
-    ): ...
-
-    def select(
-        self,
-        candidates: list[RetrievalResult],
-        goal: str | None = None,          # Current task/query for top-down bias
-        goal_embedding: list[float] | None = None,
-    ) -> list[RetrievalResult]:
-        """
-        Competitive selection into capacity-limited buffer.
-        Returns <= self.capacity items in position-optimized order.
-        """
-        ...
-
-    def _composite_score(
-        self,
-        result: RetrievalResult,
-        goal_embedding: list[float] | None,
-    ) -> float:
-        """salience × relevance × recency × top_down_weight"""
-        ...
-
-    def _position_reorder(self, ranked: list[RetrievalResult]) -> list[RetrievalResult]:
-        """
-        Reorders for LLM consumption to mitigate lost-in-the-middle:
-        [rank-1, rank-3, rank-5, ..., rank-4, rank-2]
-        Best evidence at start and end. Middle slots for supporting context.
-        """
-        ...
-```
-
-**Tests:** `tests/test_cognitive/test_workspace.py`
-- select() returns <= capacity items
-- select() with 20 candidates returns exactly 5
-- Position reordering places rank-1 first
-- Position reordering places rank-2 last
-- goal_embedding biases selection toward topically relevant memories
-- Works with capacity=3 and capacity=7
-
-Commit: `cognitive: add GlobalWorkspace — K=5 competitive context selection`
-
----
-
-### Phase H — Simple API
-
-**Goal:** Mem0 adoptability. Seven methods. Zero config.
-
-**File:** `verity/memory.py`
-
-This is the user-facing bolt-on API. It wires together the cognitive layer.
-
-```python
-class Memory:
-    """
-    Verity's bolt-on memory API.
-
-    Zero config:
-        m = Memory()                    # SQLite in ~/.verity/memory.db
-        m.add("I prefer dark mode")     # Store
-        m.search("preferences")         # Retrieve
-
-    Full config:
-        m = Memory(
-            path="/data/memory.db",
-            user_id="alice",
-            capacity=500,
-            embedding_model="sentence-transformers",
-        )
-
-    Works with or without numpy, sentence-transformers, scipy, torch.
-    Automatically uses the best available backend.
-    """
-
-    def __init__(
-        self,
-        path: str = "~/.verity/memory.db",
-        user_id: str = "default",
-        capacity: int = 500,
-        embedding_model: str = "auto",  # "none"|"model2vec"|"sentence-transformers"|"auto"
-    ): ...
-
-    # ── Core 7 methods ────────────────────────────────────────────────────
-
-    def add(
-        self,
-        content: str,
-        metadata: dict = {},
-        importance: float | None = None,  # None = auto-compute
-    ) -> str:
-        """Store a memory. Returns memory_id."""
-        ...
-
-    def search(
-        self,
-        query: str,
-        k: int = 5,
-        user_id: str | None = None,
-    ) -> list[dict]:
-        """
-        Semantic search. Returns list of dicts with keys:
-        id, content, score, metadata, confidence, strength
-        """
-        ...
-
-    def get(self, memory_id: str) -> dict | None:
-        """Fetch one memory by ID. Returns dict or None."""
-        ...
-
-    def update(self, memory_id: str, content: str) -> dict:
-        """Update memory content. Applies reconsolidation rules."""
-        ...
-
-    def delete(self, memory_id: str) -> bool:
-        """Delete a memory. GDPR Article 17 compliant."""
-        ...
-
-    def consolidate(self) -> dict:
-        """
-        Run sleep consolidation cycle.
-        Returns: {decayed, pruned, merged, abstractions, duration_seconds}
-        """
-        ...
-
-    def export(self, format: str = "json") -> str | dict:
-        """
-        Export all memories. GDPR Article 20 compliant.
-        format: "json" | "csv"
-        """
-        ...
-
-    # ── Async variants ────────────────────────────────────────────────────
-    # Each method above has an async equivalent: aadd, asearch, aget, etc.
-
-    # ── Context manager ───────────────────────────────────────────────────
-    def __enter__(self): ...
-    def __exit__(self, *args): ...
-    async def __aenter__(self): ...
-    async def __aexit__(self, *args): ...
-```
-
-Export `Memory` from `verity/__init__.py` alongside the existing exports.
-
-Update `pyproject.toml`:
-- Add `[project.optional-dependencies]` section `cognitive`:
-  ```
-  model2vec>=0.3.0
-  hnswlib>=0.8.0
-  ```
-- Add `full` extra combining `fast` + `connectors` + `cognitive`
-
-**Tests:** `tests/test_memory.py`
-- Zero-dependency path works (embedding_model="none")
-- add() returns a string ID
-- search() returns list of dicts with required keys
-- get() returns None for unknown ID
-- update() modifies content
-- delete() returns True, subsequent get() returns None
-- consolidate() returns dict with expected keys
-- export() returns valid JSON string
-- Async variants (aadd, asearch, etc.) work
-- Context manager (with Memory() as m:) works
-
-Commit: `cognitive: add Memory API — zero-config bolt-on with 7 methods`
-
----
 
 ## How to Run Tests
 
 ```bash
-# Install in dev mode with all optional extras
-pip install -e ".[dev,cognitive,connectors,fast]"
+# Install in dev mode
+pip install -e ".[dev]"
 
-# All tests
+# Run all tests
 pytest tests/ -v
 
-# Just cognitive tests
-pytest tests/test_cognitive/ -v
+# Run benchmarks (excluded from regular CI)
+pytest benchmarks/ --ignore=benchmarks/test_performance.py -v
 
-# Coverage
+# Run performance benchmarks explicitly
+pytest benchmarks/test_performance.py -v -s
+
+# Run with coverage
 pytest tests/ -v --cov=verity --cov-report=term-missing
 
 # Lint
-ruff check verity/ tests/
+ruff check verity/ tests/ benchmarks/
 
-# Type check (informational)
+# Type check
 mypy verity/
 ```
 
@@ -842,9 +343,9 @@ scope: short description
 Examples:
 ```
 cognitive: add types — MemoryEntry, ConfidenceTier, SleepCycleResult
-cognitive: add DualSpeedStore — SQLite CLS implementation
-cognitive: add ReconsolidationEngine — 4-tier stable belief revision
-cognitive: add Memory API — zero-config bolt-on with 7 methods
+bench: add generator and property invariant tests
+fix: promote_tier fires at all tiers except IMMUTABLE
+docs: update README, add quickstart example
 ```
 
 One line. Under 72 characters. Imperative mood.
@@ -865,6 +366,8 @@ One line. Under 72 characters. Imperative mood.
 - Do not break existing passing tests — fix them if the change requires it
 - Do not add non-optional dependencies to `[dependencies]` in pyproject.toml
 - Do not require numpy, scipy, torch, or any ML library in the zero-dep path
+- Always quote version specifiers in shell commands: `pip install "pkg>=1.0"`
+  not `pip install pkg>=1.0` — the unquoted `>` is output redirection in bash
 
 ---
 
@@ -874,112 +377,17 @@ These patterns exist in the codebase. Know them so you don't conflict with them.
 
 **VERIFY** — not a protocol, not a class. It is the immune system that runs
 *inside* every core function. It checks principles integrity, consent validity,
-and crisis flags before any graph operation proceeds. You will see it referenced
-in design documents. It is not something you build — it is the name for the
-interlocking checks already present in `crisis.py`, `principles.py`, and
-`_validate_consent()`.
+and crisis flags before any graph operation proceeds. It is not something you
+build — it is the name for the interlocking checks already present in
+`crisis.py`, `principles.py`, and `_validate_consent()`.
 
 **SOMA** — the integration layer inside `navigate()` that assembles a
 `ContextBundle` from raw traversal results. It is not a separate file or class —
 it describes the assembly logic: scoring, ranking, uncertainty annotation, and
 `agent_prompt` formatting that happens between graph traversal and returning
-context to the caller. When you see "SOMA" in design documents, it means that
-assembly step in `engine.py`'s `navigate()` method.
+context to the caller.
 
 Neither VERIFY nor SOMA needs new files. They are patterns, not modules.
-
----
-
-## Benchmark Plan — Active Work
-
-The next phase is deterministic benchmarking of Verity's three core claims.
-All four sessions are LLM-free and run in CI.
-
-### Structure
-
-```
-benchmarks/
-├── __init__.py
-├── conftest.py
-├── data/
-│   ├── __init__.py
-│   └── generator.py         # deterministic synthetic datasets (seeded)
-├── test_invariants.py       # Hypothesis property + stateful tests
-├── test_claims.py           # three core claim validation suites
-├── test_retrieval.py        # golden set + 8-condition ablation study
-├── test_performance.py      # pytest-benchmark latency + memory
-└── README.md
-```
-
-### Key design decisions — do not change without asking
-
-1. **Synthetic embeddings**: `generator.py` creates structured numpy unit
-   vectors. Each semantic topic maps to a distinct direction with small
-   gaussian noise (σ=0.05). Works everywhere, no GPU, no real model.
-   Uses `DualSpeedStore.add(..., _embedding=vector)` to inject.
-   64 dimensions. 5 topic centroids (orthogonal). Seeded: rng(42).
-
-2. **Ablation uses lower-level APIs**: `DualSpeedStore` + individual
-   cognitive components directly (not `Memory()`), since `Memory` hardwires
-   all components. Enables toggling each component without touching the API.
-
-3. **Importance stratification**: Uses Bayesian confidence tiers
-   (IMMUTABLE/PROTECTED vs LABILE), not raw importance scores.
-   `decay_pass()` is uniform — only protection tiers exempt from pruning.
-   High-importance: alpha=250, beta=10. Low-importance: alpha=2, beta=5.
-
-4. **Telephone game test**: Uses `ReconsolidationEngine` directly,
-   not `Memory.update()`, to isolate reconsolidation logic from I/O.
-
-5. **Calibration test**: Structural calibration only (CI width narrows
-   with source_count, rank correlation between confidence and source_count).
-   Full ECE deferred to community benchmarks (needs LLM ground truth).
-
-6. **Retrieval invariant**: Hit Rate (memory appears in top-3 results
-   when searching its own content prefix), not a score threshold.
-
-### Session 1 — Foundation (current)
-
-Creates `benchmarks/` structure, `data/generator.py`, `test_invariants.py`.
-Adds `hypothesis>=6.100.0` to `[dev]` extras in `pyproject.toml`.
-
-Five datasets from generator (all seeded, reproducible):
-- `retrieval_set()` — 100 memories, 30 queries, known relevant IDs
-- `interference_set()` — 20 (old, new) fact pairs, ground truth = new
-- `temporal_set()` — 30 memories with 3 access patterns
-- `consolidation_set()` — 5 groups × 4 similar memories, known entity lists
-- `importance_set()` — 20 IMMUTABLE + 20 LABILE MemoryEntry objects
-
-Six Hypothesis invariants:
-1. Hit Rate (memory retrievable by own content prefix)
-2. IMMUTABLE protection (no content change regardless of PE)
-3. Consolidation monotonicity (count never increases)
-4. Export consistency (export count = adds - deletes)
-5. Temporal monotonicity (weights strictly decrease with time)
-6. Consolidation idempotency (two runs = one run)
-
-Commit: `bench: add generator and property invariant tests`
-
-### Session 2 — Core Claim Validation
-
-Creates `benchmarks/test_claims.py`.
-Tests Verity's three novel claims end-to-end.
-Commit: `bench: add core claim validation tests`
-
-### Session 3 — Retrieval Quality + Ablation
-
-Creates `benchmarks/test_retrieval.py`.
-Metrics: P@1, P@5, R@5, MRR, NDCG@5, Hit@5.
-8 ablation conditions with Wilcoxon + bootstrap CIs.
-Commit: `bench: add retrieval quality and ablation study`
-
-### Session 4 — Performance
-
-Creates `benchmarks/test_performance.py`.
-pytest-benchmark. Targets: P95 search < 300ms, add < 50ms.
-Updates `.github/workflows/ci.yml` with benchmark job.
-Adds `pytest-benchmark>=4.0` to `[dev]` extras.
-Commit: `bench: add performance benchmarks and CI integration`
 
 ---
 
