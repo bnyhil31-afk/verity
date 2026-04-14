@@ -122,20 +122,19 @@ class TestReconsolidationStability:
 
     def test_bayesian_updates_match_analytical_posterior(self):
         """
-        promote_tier() increments alpha for LABILE entries (PE=0.2 fires
-        above the LABILE threshold of 0.1, but is below the MODIFIABLE
-        threshold of 0.3 and thus a no-op for MODIFIABLE+).
+        promote_tier() fires for all tiers except IMMUTABLE (PE=0.65 opens
+        LABILE threshold=0.1, MODIFIABLE threshold=0.3, PROTECTED threshold=0.6).
 
         Starting state: alpha=1.0, beta=3.0 (LABILE, conf=0.25)
 
-        After 5 promote_tier() calls — only 2 fire while LABILE:
-          alpha = 1 + 2 = 3.0
-          conf  = 3 / (3+3) = 0.5 → MODIFIABLE
-        Calls 3–5 are no-ops: PE=0.2 < MODIFIABLE threshold=0.3.
+        After 5 promote_tier() calls — all 5 fire:
+          Calls 1–2: LABILE  → alpha 1→2→3, conf reaches 0.5 → MODIFIABLE
+          Calls 3–5: MODIFIABLE → alpha 3→4→5→6
+          alpha = 6.0, conf = 6 / (6+3) ≈ 0.667 → MODIFIABLE
 
         After 2 contradiction updates (PE=0.8, different content):
-          Call 1: MODIFIABLE (threshold=0.3) → fires → beta=4, conf≈0.43 → LABILE
-          Call 2: LABILE (threshold=0.1) → fires → beta=5
+          Call 1: MODIFIABLE (threshold=0.3) → fires → beta=4, conf≈0.60 → MODIFIABLE
+          Call 2: MODIFIABLE (threshold=0.3) → fires → beta=5
         """
         from verity.cognitive.reconsolidation import ReconsolidationEngine
         from verity.cognitive.types import ConfidenceTier, MemoryEntry, MemoryTier
@@ -158,19 +157,19 @@ class TestReconsolidationStability:
             beta=3.0,
         )
 
-        # 5 promote_tier() calls: 2 fire (while LABILE), 3 are no-ops (MODIFIABLE)
+        # Analytical: alpha starts 1.0, all 5 promote_tier() calls fire → 6.0
         for _ in range(5):
             entry = engine.promote_tier(entry)
 
-        assert entry.alpha == pytest.approx(3.0, abs=0.01), (
-            f"Expected alpha=3.0 after 5 promote_tier() calls "
-            f"(2 fire while LABILE; MODIFIABLE threshold blocks the rest), "
+        assert entry.alpha == pytest.approx(6.0, abs=0.01), (
+            f"Expected alpha=6.0 after 5 promote_tier() calls "
+            f"(all fire; LABILE: calls 1–2, MODIFIABLE: calls 3–5), "
             f"got {entry.alpha}"
         )
         assert entry.beta == pytest.approx(3.0, abs=0.01), (
             "Beta should not change from confirmations"
         )
-        assert entry.bayesian_confidence == pytest.approx(3.0 / 6.0, abs=0.01)
+        assert entry.bayesian_confidence == pytest.approx(6.0 / 9.0, abs=0.01)
         assert entry.confidence_tier == ConfidenceTier.MODIFIABLE, (
             f"Expected MODIFIABLE (conf≥0.50) after promotions, "
             f"got {entry.confidence_tier}"
