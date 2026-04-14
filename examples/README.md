@@ -1,22 +1,18 @@
 # Verity Examples
 
-Working examples that demonstrate Verity's core features.
-
 ## Prerequisites
 
 ```bash
-# Minimum — covers examples/01_personal_notes.py
-pip install verity
-
-# Full — covers all examples
-pip install "verity[connectors]"
+pip install verity                 # covers 00_quickstart.py
+pip install "verity[connectors]"   # covers 01, 02, 03
 ```
 
-## Running the examples
+## Running
 
-All examples are run from the **repo root**:
+All examples are run from the repo root:
 
 ```bash
+python examples/00_quickstart.py   # start here
 python examples/01_personal_notes.py
 python examples/02_rest_api.py
 python examples/03_sql_database.py
@@ -24,9 +20,11 @@ python examples/03_sql_database.py
 
 ## What each example demonstrates
 
-- **01_personal_notes.py** — FilesystemConnector reading local Markdown files;
-  the full RELATE → NAVIGATE loop with uncertainty output and an audit ID
-- **02_rest_api.py** — DltConnector wrapping a public REST API (no auth required);
-  ingesting structured JSON records and assembling context from them
+- **00_quickstart.py** — Memory API: add/search/get/update/consolidate/
+  export/delete. No connectors. Zero config. Start here.
+- **01_personal_notes.py** — Engine API with FilesystemConnector reading
+  local Markdown files; full RELATE→NAVIGATE→GOVERN→REMEMBER loop
+- **02_rest_api.py** — DltConnector over a public REST API (no auth);
+  ingesting structured JSON and assembling context
 - **03_sql_database.py** — DltConnector over an in-memory SQLite database;
-  ingesting rows as typed facts and traversing the resulting knowledge graph
+  ingesting rows as typed facts
