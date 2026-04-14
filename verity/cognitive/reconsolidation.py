@@ -157,18 +157,26 @@ class ReconsolidationEngine:
         """
         Record a confirmation without changing content.
 
-        Uses prediction_error=0.2 (below the MODIFIABLE threshold of 0.3
-        but above the LABILE threshold of 0.1), so it reinforces LABILE
-        memories while being a no-op for MODIFIABLE and above unless the
-        tier is LABILE.
+        Uses prediction_error=0.65 to open the gate for all tiers except
+        IMMUTABLE (LABILE: 0.10, MODIFIABLE: 0.30, PROTECTED: 0.60).
+        Always increments alpha — recall is a confirmation signal regardless
+        of the PE value used to pass the gate.
 
         Used when a memory is recalled and verified to be correct.
         """
-        return self.update(
+        if not self.should_reconsolidate(entry, 0.65):
+            return entry
+        new_alpha = entry.alpha + 1.0
+        new_source_count = entry.source_count + (1 if source_confirmed else 0)
+        new_confidence_tier = self._compute_tier(
+            new_alpha, entry.beta, new_source_count
+        )
+        return replace(
             entry,
-            new_content=entry.content,
-            prediction_error=0.2,
-            source_confirmed=source_confirmed,
+            last_accessed=datetime.now(UTC),
+            alpha=new_alpha,
+            source_count=new_source_count,
+            confidence_tier=new_confidence_tier,
         )
 
     def demote_tier(self, entry: MemoryEntry) -> MemoryEntry:

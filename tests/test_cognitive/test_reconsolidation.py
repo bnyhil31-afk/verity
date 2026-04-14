@@ -342,10 +342,10 @@ class TestPromoteTier:
         result = engine.promote_tier(entry)
         assert result.content == "preserve me"
 
-    def test_promote_tier_modifiable_is_noop(self, engine):
+    def test_promote_tier_modifiable_fires(self, engine):
         """
-        MODIFIABLE threshold=0.30; promote_tier uses PE=0.2 < 0.30.
-        Gate is closed → entry returned unchanged.
+        MODIFIABLE threshold=0.30; promote_tier uses PE=0.65 > 0.30.
+        Gate is open → alpha increments, new entry returned.
         """
         entry = _make_entry(
             confidence_tier=ConfidenceTier.MODIFIABLE,
@@ -353,7 +353,9 @@ class TestPromoteTier:
             beta=1.0,
         )
         result = engine.promote_tier(entry)
-        assert result is entry
+        assert result is not entry
+        assert result.alpha == pytest.approx(3.0)   # alpha += 1
+        assert result.beta  == pytest.approx(1.0)   # beta unchanged
 
     def test_promote_tier_with_source_confirmed(self, engine):
         """source_confirmed=True in promote_tier increments source_count."""
