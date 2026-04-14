@@ -1,3 +1,48 @@
+## Setup (one-time, before first release)
+
+Trusted Publishing must be configured on PyPI, TestPyPI, and GitHub
+before the workflow can publish. Do this once:
+
+### On TestPyPI
+1. Go to https://test.pypi.org/manage/account/publishing/
+2. Add a pending publisher:
+   - PyPI project name: verity
+   - Owner: bnyhil31-afk
+   - Repository name: verity
+   - Workflow name: release.yml
+   - Environment name: testpypi
+
+### On PyPI
+1. Go to https://pypi.org/manage/account/publishing/
+2. Add a pending publisher:
+   - PyPI project name: verity
+   - Owner: bnyhil31-afk
+   - Repository name: verity
+   - Workflow name: release.yml
+   - Environment name: pypi
+
+### On GitHub
+1. Go to Settings → Environments
+2. Create environment: testpypi (no protection rules needed)
+3. Create environment: pypi
+   - Add protection rule: Required reviewers → add yourself
+   - This gates the PyPI publish step behind manual approval
+
+Once setup is complete, skip to "Publishing a release" below.
+
+## Publishing a release
+
+    git tag v0.2.0
+    git push origin v0.2.0
+
+The workflow will:
+  1. Build the distribution
+  2. Publish to TestPyPI automatically
+  3. Pause for your manual approval (pypi environment protection)
+  4. Publish to PyPI
+
+---
+
 # Verity v0.1.0 Release Checklist
 
 ## Pre-upload verification
