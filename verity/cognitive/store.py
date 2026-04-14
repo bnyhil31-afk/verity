@@ -332,23 +332,43 @@ class DualSpeedStore:
     # Public API
     # ------------------------------------------------------------------
 
-    def add(self, content: str, metadata: dict[str, Any] | None = None) -> MemoryEntry:
-        """Store a memory in the fast buffer. Returns the new MemoryEntry."""
+    def add(
+        self,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        importance: float | None = None,
+        tier: MemoryTier = MemoryTier.FAST,
+        _embedding: list[float] | None = None,
+    ) -> MemoryEntry:
+        """
+        Store a memory. Returns the new MemoryEntry.
+
+        tier=MemoryTier.FAST (default): insert into fast buffer, apply capacity check.
+        tier=MemoryTier.SLOW: insert directly into slow store, skip capacity check.
+
+        _embedding: if provided, store this pre-computed embedding instead of
+            running the embedding model. Used by consolidation and tests.
+        importance: if provided, use this value instead of the default 0.5.
+        """
         if metadata is None:
             metadata = {}
         now = _now()
         memory_id = str(uuid.uuid4())
 
-        emb_arr = self._compute_embedding(content)
-        embedding: list[float] | None = emb_arr.tolist() if emb_arr is not None else None
+        # Resolve embedding: prefer pre-computed, else compute, else None
+        if _embedding is not None:
+            embedding: list[float] | None = _embedding
+        else:
+            emb_arr = self._compute_embedding(content)
+            embedding = emb_arr.tolist() if emb_arr is not None else None
 
         entry = MemoryEntry(
             memory_id=memory_id,
             content=content,
             user_id=self._user_id,
-            tier=MemoryTier.FAST,
+            tier=tier,
             confidence_tier=ConfidenceTier.LABILE,
-            importance=0.5,
+            importance=importance if importance is not None else 0.5,
             strength=1.0,
             created_at=now,
             last_accessed=now,
@@ -359,8 +379,11 @@ class DualSpeedStore:
             metadata=metadata,
             embedding=embedding,
         )
-        self._insert_entry("fast_memories", entry)
-        self._evict_if_needed()
+
+        table = "slow_memories" if tier == MemoryTier.SLOW else "fast_memories"
+        self._insert_entry(table, entry)
+        if tier == MemoryTier.FAST:
+            self._evict_if_needed()
         return entry
 
     def search(self, query: str, k: int = 5) -> list[RetrievalResult]:
