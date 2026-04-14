@@ -95,6 +95,9 @@ from verity.core.types import (
     WeightedEdge,
 )
 
+# ── Cognitive memory API ──────────────────────────────────────────────────────
+from verity.memory import Memory
+
 # ── Optional: DltConnector (requires pip install 'verity[connectors]') ────────
 
 try:
@@ -108,6 +111,8 @@ __license__ = "Apache-2.0"
 __author__  = "Verity Contributors"
 
 __all__ = [
+    # Cognitive memory API
+    "Memory",
     # Engine
     "Engine",
     "Session",

@@ -58,11 +58,19 @@ connectors = [
     "dlt>=1.4.0",              # MIT, 60+ verified data sources
 ]
 
+# Cognitive tier — optional ML backends for semantic search
+cognitive = [
+    "model2vec>=0.3.0",
+    "hnswlib>=0.8.0",
+]
+
 # Full tier — all optional features combined
 full = [
     "pyoxigraph>=0.3.22",
     "oxrdflib>=0.5.0",
     "dlt>=1.4.0",
+    "model2vec>=0.3.0",
+    "hnswlib>=0.8.0",
 ]
 
 # Team tier — PostgreSQL backend
