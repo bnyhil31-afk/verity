@@ -5,31 +5,37 @@ build-backend = "hatchling.build"
 [project]
 name = "verity"
 version = "0.1.0"
-description = "Trustworthy context for AI agents. Embedded semantic reasoning for regulated industries."
+description = "A cognitive memory system for AI agents — neuroscience-inspired, zero dependencies by default"
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
+authors = [
+    {name = "Claude", email = "noreply@anthropic.com"},
+]
 
 keywords = [
-    "knowledge-graph",
-    "semantic-reasoning",
+    "memory",
     "ai-agents",
-    "context",
-    "rdf",
-    "fhir",
-    "hipaa",
-    "regulated-industries",
+    "cognitive",
+    "llm",
+    "rag",
+    "knowledge-graph",
+    "sqlite",
+    "embeddings",
+    "neuroscience",
 ]
 
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 # Core runtime dependencies — no optional extras required to run
@@ -98,7 +104,16 @@ verity = "verity.cli:main"
 [project.urls]
 Homepage = "https://github.com/bnyhil31-afk/verity"
 Repository = "https://github.com/bnyhil31-afk/verity"
-Issues = "https://github.com/bnyhil31-afk/verity/issues"
+"Bug Tracker" = "https://github.com/bnyhil31-afk/verity/issues"
+Changelog = "https://github.com/bnyhil31-afk/verity/blob/main/CHANGELOG.md"
+
+# ── Hatch build configuration ────────────────────────────────────────────────
+# Force metadata version 2.3 — packaging 24.0 (system) does not support 2.4
+[tool.hatch.build.targets.wheel]
+core-metadata-version = "2.3"
+
+[tool.hatch.build.targets.sdist]
+core-metadata-version = "2.3"
 
 # ── Tool configuration ────────────────────────────────────────────────────────
 
