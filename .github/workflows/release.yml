@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/verity
+      url: https://test.pypi.org/p/veritycog
     permissions:
       id-token: write
     steps:
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/verity
+      url: https://pypi.org/p/veritycog
     permissions:
       id-token: write
     steps:

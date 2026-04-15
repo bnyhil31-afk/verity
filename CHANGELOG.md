@@ -6,7 +6,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [0.1.0] — 2026-04-14
+## [0.1.1] — 2026-04-15
+
+> Note: Published as `veritycog` on PyPI. Import name is unchanged: `from verity import Memory`
 
 First public release.
 
@@ -59,12 +61,12 @@ These were unsolved in production memory systems before this release:
 ### Install tiers
 
 ```
-pip install verity                    # stdlib only
-pip install "verity[cognitive]"       # + model2vec + hnswlib
-pip install "verity[connectors]"      # + dlt
-pip install "verity[mcp]"             # + fastmcp
-pip install "verity[fast]"            # + pyoxigraph (graph backend)
-pip install "verity[full]"            # everything
+pip install veritycog                    # stdlib only
+pip install "veritycog[cognitive]"       # + model2vec + hnswlib
+pip install "veritycog[connectors]"      # + dlt
+pip install "veritycog[mcp]"             # + fastmcp
+pip install "veritycog[fast]"            # + pyoxigraph (graph backend)
+pip install "veritycog[full]"            # everything
 ```
 
 ### Benchmark results (zero-dependency tier, embedding_model='none')
@@ -88,4 +90,4 @@ Results will vary significantly with embedding models enabled.
 
 ---
 
-[0.1.0]: https://github.com/bnyhil31-afk/verity/releases/tag/v0.1.0
+[0.1.1]: https://github.com/bnyhil31-afk/verity/releases/tag/v0.1.1

@@ -13,10 +13,10 @@ The API is seven methods. Zero configuration. No GPU. No cloud. No API key requi
 ## Install
 
 ```bash
-pip install verity                    # stdlib only — text search
-pip install "verity[cognitive]"       # + model2vec + hnswlib (recommended)
-pip install "verity[connectors]"      # + dlt (60+ data sources)
-pip install "verity[full]"            # everything
+pip install veritycog                    # stdlib only — text search
+pip install "veritycog[cognitive]"       # + model2vec + hnswlib (recommended)
+pip install "veritycog[connectors]"      # + dlt (60+ data sources)
+pip install "veritycog[full]"            # everything
 ```
 
 ## Quickstart

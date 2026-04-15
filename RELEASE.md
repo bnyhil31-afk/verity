@@ -6,7 +6,7 @@ before the workflow can publish. Do this once:
 ### On TestPyPI
 1. Go to https://test.pypi.org/manage/account/publishing/
 2. Add a pending publisher:
-   - PyPI project name: verity
+   - PyPI project name: veritycog
    - Owner: bnyhil31-afk
    - Repository name: verity
    - Workflow name: release.yml
@@ -15,7 +15,7 @@ before the workflow can publish. Do this once:
 ### On PyPI
 1. Go to https://pypi.org/manage/account/publishing/
 2. Add a pending publisher:
-   - PyPI project name: verity
+   - PyPI project name: veritycog
    - Owner: bnyhil31-afk
    - Repository name: verity
    - Workflow name: release.yml
@@ -43,7 +43,7 @@ The workflow will:
 
 ---
 
-# Verity v0.1.0 Release Checklist
+# Verity v0.1.1 Release Checklist
 
 ## Pre-upload verification
 
@@ -54,9 +54,9 @@ The workflow will:
 
 ## Check name availability
 
-Verify `verity` is not already taken on PyPI:
+Verify `veritycog` is not already taken on PyPI:
 
-    pip install verity  # should fail with "No matching distribution found"
+    pip install veritycog  # should fail with "No matching distribution found"
 
 If the name is taken, consider: `verity-memory`, `verity-ai`, or `verity-cognitive`.
 Update `name` in pyproject.toml, rebuild, and re-check.
@@ -69,7 +69,7 @@ Update `name` in pyproject.toml, rebuild, and re-check.
     # Install and verify from TestPyPI
     pip install --index-url https://test.pypi.org/simple/ \
                 --extra-index-url https://pypi.org/simple/ \
-                verity
+                veritycog
 
     # Quick smoke test
     python -c "from verity import Memory; m = Memory(); m.add('test'); print(m.search('test'))"
@@ -80,26 +80,26 @@ If TestPyPI install and smoke test pass, proceed.
 
     twine upload dist/*
 
-Verify the release page: https://pypi.org/project/verity/
+Verify the release page: https://pypi.org/project/veritycog/
 
 ## Tag the release
 
-    git tag v0.1.0
-    git push origin v0.1.0
+    git tag v0.1.1
+    git push origin v0.1.1
 
 ## Create GitHub Release
 
 Go to: https://github.com/bnyhil31-afk/verity/releases/new
-- Tag: v0.1.0
-- Title: v0.1.0 — Initial Release
-- Body: paste the [0.1.0] section from CHANGELOG.md
-- Attach: dist/verity-0.1.0-py3-none-any.whl and dist/verity-0.1.0.tar.gz
+- Tag: v0.1.1
+- Title: v0.1.1 — Initial Release
+- Body: paste the [0.1.1] section from CHANGELOG.md
+- Attach: dist/veritycog-0.1.1-py3-none-any.whl and dist/veritycog-0.1.1.tar.gz
 
 ## Announce
 
 Update README.md badge if you add a PyPI version badge:
 
-    [![PyPI version](https://badge.fury.io/py/verity.svg)](https://badge.fury.io/py/verity)
+    [![PyPI version](https://badge.fury.io/py/veritycog.svg)](https://badge.fury.io/py/veritycog)
 
 ---
-Generated for: verity v0.1.0 release
+Generated for: veritycog v0.1.1 release

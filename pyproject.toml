@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "verity"
-version = "0.1.0"
+name = "veritycog"
+version = "0.1.1"
 description = "A cognitive memory system for AI agents — neuroscience-inspired, zero dependencies by default"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -111,6 +111,7 @@ Changelog = "https://github.com/bnyhil31-afk/verity/blob/main/CHANGELOG.md"
 # Force metadata version 2.3 — packaging 24.0 (system) does not support 2.4
 [tool.hatch.build.targets.wheel]
 core-metadata-version = "2.3"
+packages = ["verity"]
 
 [tool.hatch.build.targets.sdist]
 core-metadata-version = "2.3"
