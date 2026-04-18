@@ -1,5 +1,11 @@
 # Verity
 
+[![PyPI version](https://badge.fury.io/py/veritycog.svg)](https://badge.fury.io/py/veritycog)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://pypi.org/project/veritycog/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/bnyhil31-afk/verity/actions/workflows/ci.yml/badge.svg)](https://github.com/bnyhil31-afk/verity/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-veritycog-blue)](https://bnyhil31-afk.github.io/verity/)
+
 A cognitive memory system for AI agents and applications — inspired by how the brain actually stores, recalls, and forgets.
 
 ## What it does
